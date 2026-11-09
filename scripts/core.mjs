@@ -35,6 +35,32 @@ export const OPERATIONS = {
   WAIT: "The page is blank or still loading; look again before acting.",
 };
 
+// Two yes/no checks asked in the same request as the operation. Jev answers each with a
+// probability ("noul"), and code, not Jev, decides from them when the run stops.
+export const CHECKS = {
+  goal_met: "Every requirement of the goal is visibly satisfied on the current page.",
+  stuck: "Recent actions show the run is not making progress toward the goal, and no offered operation is likely to make progress.",
+};
+
+// act: the lowest operation probability acted on without asking the caller (TypeSafe's 0.7).
+// accept: the goal_met probability a DONE needs. stop: a check this sure ends the run on its own.
+// Only the operation is gated, not the target: a pick among dozens of controls is often right
+// at p≈0.5, while a pick among the handful of operations is not.
+export const THRESHOLDS = { act: 0.7, accept: 0.7, stop: 0.85 };
+
+/**
+ * Whether to stop after this decision: "done", "blocked", "unsure" (hand back to the caller), or
+ * null to act. A missing check counts as unknown: it never stops a run and never verifies a DONE.
+ */
+export function verdict(decision, t = THRESHOLDS) {
+  const { goal_met, stuck } = decision.checks ?? {};
+  if (goal_met >= t.stop) return "done";
+  if (decision.operation === "DONE") return goal_met >= t.accept ? "done" : "unsure";
+  if (decision.operation === "BLOCKED" || stuck >= t.stop) return "blocked";
+  if (decision.operation === "WAIT") return null; // harmless: it only looks again
+  return decision.operation_p >= t.act ? null : "unsure";
+}
+
 // Runs inside the page. Lists the visible, enabled controls of the whole page and keeps a
 // code-owned id → element map so later actions resolve to the exact observed node.
 const SNAPSHOT = `(() => {
@@ -230,6 +256,7 @@ export function buildRequest({ goal, page, texts = [], secret = "", history = []
     : true));
 
   const questions = { operation: { type: "choice", criteria: offered, instructions: { goal, rules: RULES } } };
+  for (const [name, statement] of Object.entries(CHECKS)) questions[name] = { type: "noul", instructions: `Goal: ${goal}\n${statement}` };
   for (const [op, candidates] of Object.entries(targets)) {
     if (Object.keys(candidates).length < 2) continue; // one candidate needs no question
     questions[`${op.toLowerCase()}_target`] = {
@@ -252,7 +279,11 @@ export function buildRequest({ goal, page, texts = [], secret = "", history = []
 /** Turn Jev's answers into one validated decision: an operation and, if it needs one, an offered target. */
 export function readDecision(answers, { offered, targets }) {
   const operation = pick(answers.operation, offered);
-  const decision = { operation: operation.choice, p: operation.p, probabilities: { operation: answers.operation.probabilities } };
+  const decision = {
+    operation: operation.choice, p: operation.p, operation_p: operation.p,
+    probabilities: { operation: answers.operation.probabilities },
+    checks: Object.fromEntries(Object.keys(CHECKS).map(name => [name, answers[name]?.noul])),
+  };
   const candidates = targets[decision.operation];
   if (!candidates) return decision;
   const ids = Object.keys(candidates);

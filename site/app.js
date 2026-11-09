@@ -63,7 +63,7 @@ function renderStep(step, { liveFrame = false } = {}) {
   $("request").textContent = JSON.stringify(body, null, 2);
 
   // jev column
-  const heads = Object.entries(answers).map(([name, a]) => {
+  const heads = Object.entries(answers).filter(([, a]) => a.probabilities).map(([name, a]) => { // yes/no checks carry one number, not bars
     const used = name === "operation" || name === headUsed;
     const criteria = body.questions[name]?.criteria || {};
     const sorted = Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]);

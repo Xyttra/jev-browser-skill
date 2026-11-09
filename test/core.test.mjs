@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -171,4 +171,44 @@ test("every offered operation ships a description for Jev to choose on", () => {
     assert.ok(text.length > 10, `${op} needs a real description`);
   }
   assert.deepEqual(Object.keys(body.questions.operation.criteria), Object.keys(offered));
+});
+
+test("every request asks the goal-met and stuck checks as yes/no questions", () => {
+  const { body } = buildRequest({ ...base, page: loginPage() });
+  for (const name of Object.keys(CHECKS)) {
+    assert.equal(body.questions[name].type, "noul");
+    assert.match(body.questions[name].instructions, /log in/, "the check knows the goal");
+  }
+});
+
+test("readDecision carries the checks, and the operation's own probability", () => {
+  const req = buildRequest({ ...base, page: loginPage() });
+  const d = readDecision({
+    operation: { choice: "CLICK", probabilities: { CLICK: 0.9 } },
+    click_target: { choice: "3", probabilities: { 3: 0.4 } },
+    goal_met: { noul: 0.1 }, stuck: { noul: 0.2 },
+  }, req);
+  assert.deepEqual(d.checks, { goal_met: 0.1, stuck: 0.2 });
+  assert.equal(d.operation_p, 0.9);
+  assert.equal(d.p, 0.4);
+});
+
+test("verdict: a confident action runs, an unsure one is handed back", () => {
+  const act = (operation_p, checks = { goal_met: 0.1, stuck: 0.1 }) => verdict({ operation: "CLICK", operation_p, checks });
+  assert.equal(act(0.9), null);
+  assert.equal(act(0.7), null);
+  assert.equal(act(0.5), "unsure");
+  assert.equal(verdict({ operation: "WAIT", operation_p: 0.3, checks: {} }), null, "WAIT only looks again");
+});
+
+test("verdict: DONE needs the goal-met check to agree", () => {
+  assert.equal(verdict({ operation: "DONE", operation_p: 1, checks: { goal_met: 0.8 } }), "done");
+  assert.equal(verdict({ operation: "DONE", operation_p: 1, checks: { goal_met: 0.4 } }), "unsure");
+  assert.equal(verdict({ operation: "DONE", operation_p: 1, checks: {} }), "unsure", "a missing check never verifies");
+});
+
+test("verdict: a very sure check stops the run whatever the operation", () => {
+  assert.equal(verdict({ operation: "CLICK", operation_p: 0.9, checks: { goal_met: 0.9, stuck: 0 } }), "done");
+  assert.equal(verdict({ operation: "CLICK", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.9 } }), "blocked");
+  assert.equal(verdict({ operation: "BLOCKED", operation_p: 0.6, checks: {} }), "blocked");
 });

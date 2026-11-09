@@ -60,12 +60,26 @@ Each step prints one line: operation, target, Jev's probability, Jev latency, el
 A `skipped:` line under a step means its target was covered or off screen, so nothing was clicked;
 Jev sees the miss and picks something else.
 
-Then a JSON summary: `status` (`done`, `blocked`, `max_steps`), `steps`, `seconds`,
+Then a JSON summary: `status` (`done`, `blocked`, `unsure`, `max_steps`), `steps`, `seconds`,
 `jev_seconds`, final `url`, `title` and visible `page_text`. Answer the user's question from
 `page_text` (or the screenshot). Exit code is 0 only for `done`.
 
-If the status is `blocked`, read the step log, then retry once with a more explicit goal or a
-missing `--text` value. Report the step log and timings to the user; the speed is the point.
+Code, not Jev, decides when to stop. Each step also asks two yes/no checks, `goal_met` and
+`stuck`. `done` needs `goal_met` ≥ 0.7 (or ≥ 0.85 on its own); `blocked` comes from a BLOCKED
+answer, `stuck` ≥ 0.85, or three steps that changed nothing. An action runs only when Jev's
+choice of operation is ≥ 0.7 sure; otherwise the run stops with `unsure` before acting, and
+the summary's `unsure` field shows what Jev proposed, its top operations and targets, and the
+checks. Nothing was done on that step.
+
+- `blocked`: read the step log, then retry once with a more explicit goal or a missing
+  `--text` value.
+- `unsure`: you decide. If the proposal or another listed option is clearly right, rerun with
+  a goal that names it, starting from the final `url` (form input typed before the stop is lost
+  on reload, so pass it again). If a second Jev run also stops, or the step is risky (payment,
+  sending, deleting), finish with the Playwright MCP tools (`mcp__playwright__*`), which are
+  slower but let you act and check each step yourself.
+
+Report the step log and timings to the user; the speed is the point.
 
 ## Operations
 

@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { decide, fingerprint } from "./core.mjs";
+import { decide, fingerprint, verdict } from "./core.mjs";
 import { Chrome, sleep } from "./browser.mjs";
 
 const API = "https://api.typesafe.ai/v1/systemone";
@@ -91,7 +91,7 @@ async function main() {
   fetch(API, { method: "HEAD" }).catch(() => {}); // open the TLS connection to Jev while the browser starts
   const chrome = await Chrome.open(args.browser, { headless: args.headless });
   const history = [], trace = { goal: args.goal, texts: args.text, secret: Boolean(args.secret), url, model, steps: [] };
-  let status = "max_steps", modelMs = 0, page;
+  let status = "max_steps", modelMs = 0, page, unsure;
   const started = performance.now();
   const elapsed = () => Math.round(performance.now() - started);
 
@@ -111,15 +111,27 @@ async function main() {
       const shown = decision.secret ? "••••••" : text;
       const label = e ? `${e.role} "${e.label}"` + (option ? ` → "${option.label}"` : "") + (text ? ` ← "${shown}"` : "") : "";
       console.log(`${String(trace.steps.length + 1).padStart(2)}  ${operation.padEnd(11)} ${label.padEnd(58).slice(0, 58)}  p=${decision.p.toFixed(2)}  ${String(decision.ms).padStart(4)}ms  +${(elapsed() / 1000).toFixed(1)}s`);
+      const checks = Object.entries(decision.checks).map(([k, v]) => `${k} ${v?.toFixed(2) ?? "?"}`).join(", ");
       if (process.env.JEV_DEBUG) {
+        console.error("   checks: " + checks);
         console.error("   ops: " + top(decision.probabilities.operation));
         if (decision.probabilities.target) console.error("   targets: " + top(decision.probabilities.target, k => `[${k}] ${page.elements[Number(k.split(":")[0]) - 1].label}`));
       }
       trace.steps.push({
         elapsed_ms: elapsed(), page: { ...page, screenshot }, calls: decision.calls,
-        decision: { operation, target: e && `[${e.index}] ${e.role} "${e.label}"`, option: option?.label, text: shown, p: decision.p, probabilities: decision.probabilities, ms: decision.ms },
+        decision: { operation, target: e && `[${e.index}] ${e.role} "${e.label}"`, option: option?.label, text: shown, p: decision.p, operation_p: decision.operation_p, checks: decision.checks, probabilities: decision.probabilities, ms: decision.ms },
       });
-      if (operation === "DONE" || operation === "BLOCKED") { status = operation.toLowerCase(); break; }
+      const stop = verdict(decision);
+      if (stop === "unsure") { // too unsure to act alone: stop and hand the choice to the caller
+        console.log(`   unsure: ${checks}; nothing was done on this step`);
+        unsure = {
+          proposed: operation + (e ? ` ${e.role} "${e.label}"` : "") + (option ? ` → "${option.label}"` : ""),
+          operation_p: +decision.operation_p.toFixed(2), checks: decision.checks,
+          operations: top(decision.probabilities.operation),
+          ...(decision.probabilities.target ? { targets: top(decision.probabilities.target, k => `[${k}] ${page.elements[Number(k.split(":")[0]) - 1].label}`) } : {}),
+        };
+      }
+      if (stop) { status = stop; break; }
 
       let acted = 0;
       if (e) {
@@ -166,6 +178,7 @@ async function main() {
     jev_seconds: +(modelMs / 1000).toFixed(2),
     url: page.url,
     title: page.title,
+    ...(unsure ? { unsure } : {}),
     ...(args.screenshot ? { screenshot: args.screenshot } : {}),
     page_text: page.text.slice(0, 2500),
   };
