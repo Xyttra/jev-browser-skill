@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SNAPSHOT, LOCATE, fingerprint } from "./core.mjs";
+import { SNAPSHOT, LOCATE, COVER, fingerprint } from "./core.mjs";
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -288,6 +288,11 @@ class Chrome {
 
   async locate(node, note, coordinates = true) {
     return this.evaluate(`${LOCATE}(${Number(node)}, ${JSON.stringify(note)}, ${Boolean(coordinates)})`);
+  }
+
+  /** What is on top of a target LOCATE gave up on, e.g. dialog "Cookie consent", or why it has no aim point. */
+  async coveredBy(node) {
+    return (await this.evaluate(`${COVER}(${Number(node)})`)) ?? "unknown (the page did not answer)";
   }
 
   /**

@@ -66,9 +66,24 @@ export function verdict(decision, t = THRESHOLDS) {
 /**
  * Why a decision that verdict() called "blocked" stopped the run: Jev answered BLOCKED
  * ("jev_blocked"), or the stuck check reached the stop bar ("stuck_check"). The loop's own
- * stop, three steps that changed nothing, is "no_progress".
+ * stops are "no_progress", three steps that changed nothing, and "covered", see coveredRun.
  */
 export const blockReason = decision => (decision.operation === "BLOCKED" ? "jev_blocked" : "stuck_check");
+
+/**
+ * Whether the run should stop as blocked ("covered"): the last three steps were all skipped
+ * because their target was covered or off screen. Skips do not count toward "no_progress", so
+ * without this a page under a consent pop-up loops to max_steps.
+ */
+export const coveredRun = history => history.length >= 3 && history.slice(-3).every(h => h.missed);
+
+/** Runs in the page: a short description of an element, e.g. dialog "Cookie consent" or iframe#sp "Consent". */
+export function describeNode(n) {
+  if (!n?.tagName) return null;
+  const text = (n.getAttribute('aria-label') || n.getAttribute('title') || n.innerText || n.getAttribute('src') || '')
+    .replace(/\s+/g, ' ').trim().slice(0, 60);
+  return (n.getAttribute('role') || n.tagName.toLowerCase()) + (n.id ? '#' + n.id : '') + (text ? ' "' + text + '"' : '');
+}
 
 /**
  * Runs in the page on a table header cell (th or [role=columnheader]): whether clicking it looks
@@ -290,7 +305,22 @@ const LOCATE = `((id, note, coordinates = true) => {
   return point;
 })`;
 
-export { SNAPSHOT, LOCATE };
+// Runs inside the page after LOCATE gave up on a target: what is on top at its aim point (the
+// centre of its first line box), or why there is no such point. A hit inside a dialog is
+// described as the dialog, since that is what the caller has to dismiss.
+const COVER = `((id) => {
+  const describeNode = ${describeNode};
+  const e = window.__jev?.nodes.get(id);
+  if (!e?.isConnected) return 'the target is gone';
+  if (e.matches(':disabled') || !e.checkVisibility()) return 'the target is hidden or disabled';
+  const r = [...e.getClientRects()].find(r => r.width && r.height) || e.getBoundingClientRect();
+  const x = r.x + r.width / 2, y = r.y + r.height / 2;
+  if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'off screen';
+  const hit = document.elementFromPoint(x, y);
+  return describeNode(hit?.closest('dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]') || hit) || 'nothing';
+})`;
+
+export { SNAPSHOT, LOCATE, COVER };
 
 /** What a page looks like for change detection: the same fingerprint means nothing happened. */
 export const fingerprint = page => JSON.stringify([page.url, page.text, page.elements.map(e => [e.node, e.value, e.checked, e.expanded, e.sort])]);

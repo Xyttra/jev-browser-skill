@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { blockReason, decide, fingerprint, verdict } from "./core.mjs";
+import { blockReason, coveredRun, decide, fingerprint, verdict } from "./core.mjs";
 import { Chrome, sleep } from "./browser.mjs";
 
 const API = "https://api.typesafe.ai/v1/systemone";
@@ -91,7 +91,7 @@ async function main() {
   fetch(API, { method: "HEAD" }).catch(() => {}); // open the TLS connection to Jev while the browser starts
   const chrome = await Chrome.open(args.browser, { headless: args.headless });
   const history = [], trace = { goal: args.goal, texts: args.text, secret: Boolean(args.secret), url, model, steps: [] };
-  let status = "max_steps", blocked, modelMs = 0, page, unsure;
+  let status = "max_steps", blocked, coveredBy, modelMs = 0, page, unsure;
   const started = performance.now();
   const elapsed = () => Math.round(performance.now() - started);
 
@@ -151,9 +151,15 @@ async function main() {
           point = await chrome.locate(e.node, "", aims);
         }
         if (!point) { // still not actionable: record the miss so Jev sees it and the target stops being offered
+          const cover = trace.steps.at(-1).covered_by = await chrome.coveredBy(e.node);
           trace.steps.at(-1).executed = false;
-          console.log("   skipped: the target was covered or off screen, so nothing was clicked");
+          console.log(`   skipped: the target was covered or off screen, so nothing was clicked (on top: ${cover})`);
           history.push({ operation, target: `${e.role} "${e.label}"`, text: shown, url: page.url, fingerprint: fingerprint(page), page_changed: false, missed: true });
+          if (coveredRun(history)) { // three skips in a row: something covers the page, e.g. a consent pop-up
+            status = "blocked"; blocked = trace.steps.at(-1).blocked_reason = "covered"; coveredBy = cover;
+            console.log(`   blocked: three targets in a row were covered; on top: ${cover}`);
+            break;
+          }
           continue;
         }
         if (!args.headless) { // the highlight pause is long enough for a busy page to reflow
@@ -190,6 +196,7 @@ async function main() {
     url: page.url,
     title: page.title,
     ...(blocked ? { blocked_reason: blocked } : {}),
+    ...(coveredBy ? { covered_by: coveredBy } : {}),
     ...(unsure ? { unsure } : {}),
     ...(args.screenshot ? { screenshot: args.screenshot } : {}),
     page_text: page.text.slice(0, 2500),

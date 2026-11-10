@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, seeThrough, ownText, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, seeThrough, ownText, coveredRun, describeNode, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -343,4 +343,21 @@ test("ownText: a menu item's label leaves out the submenu nested in it", () => {
 test("ownText: with no nested submenu it is innerText, unchanged", () => {
   const plain = { innerText: "Sign in", querySelector: () => null };
   assert.equal(ownText(plain, {}), "Sign in");
+});
+
+test("coveredRun: three skipped steps in a row stop the run, any other step resets the count", () => {
+  const skip = { missed: true }, act = { page_changed: false };
+  assert.equal(coveredRun([skip, skip]), false);
+  assert.equal(coveredRun([skip, skip, skip]), true);
+  assert.equal(coveredRun([act, skip, skip, skip]), true);
+  assert.equal(coveredRun([skip, skip, act, skip, skip]), false, "not in a row");
+  assert.equal(coveredRun([skip, act, act]), false);
+});
+
+test("describeNode: role or tag, id, and its label or text, kept short", () => {
+  const el = (tag, attrs = {}, innerText = "") => ({ tagName: tag, id: attrs.id || "", innerText, getAttribute: n => attrs[n] ?? null });
+  assert.equal(describeNode(el("DIV", { role: "dialog", "aria-label": "Cookie consent" }, "We use cookies")), 'dialog "Cookie consent"');
+  assert.equal(describeNode(el("IFRAME", { id: "sp", src: "https://consent.example/x" })), 'iframe#sp "https://consent.example/x"');
+  assert.equal(describeNode(el("P", {}, "  We   use cookies " + "x".repeat(80))).length, 'p ""'.length + 60);
+  assert.equal(describeNode(null), null);
 });

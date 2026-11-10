@@ -133,3 +133,16 @@ test("a see-through checkbox is offered when a click lands on it or its label, a
   const after = await chrome.observe();
   assert.equal(after.elements.find(e => e.node === offered.todo.node).checked, true, "Jev sees the new state");
 });
+
+test("a target under a consent pop-up is not aimed at, and the pop-up is named as what covers it", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("covered.html"));
+  const node = await chrome.evaluate(`(() => { const c = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
+    c.nodes.set(9999, document.getElementById('tech')); return 9999; })()`);
+  assert.equal(await chrome.locate(node, ""), null, "covered: no aim point");
+  assert.equal(await chrome.coveredBy(node), 'dialog#consent "Cookie consent"');
+  await chrome.evaluate("document.getElementById('consent').remove()");
+  assert.ok(await chrome.locate(node, ""), "fixture check: uncovered, it is aimed at");
+  await chrome.evaluate("document.getElementById('tech').style.cssText = 'position:fixed;top:-100px'");
+  assert.equal(await chrome.coveredBy(node), "off screen");
+});
