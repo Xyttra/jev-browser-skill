@@ -66,7 +66,8 @@ export function verdict(decision, t = THRESHOLDS) {
 /**
  * Why a decision that verdict() called "blocked" stopped the run: Jev answered BLOCKED
  * ("jev_blocked"), or the stuck check reached the stop bar ("stuck_check"). The loop's own
- * stops are "no_progress", three steps that changed nothing, and "covered", see coveredRun.
+ * stops are "no_progress", three steps that changed nothing, and "covered" or "target_gone",
+ * see coveredRun and skipReason.
  */
 export const blockReason = decision => (decision.operation === "BLOCKED" ? "jev_blocked" : "stuck_check");
 
@@ -76,6 +77,13 @@ export const blockReason = decision => (decision.operation === "BLOCKED" ? "jev_
  * without this a page under a consent pop-up loops to max_steps.
  */
 export const coveredRun = history => history.length >= 3 && history.slice(-3).every(h => h.missed);
+
+/**
+ * Why a run of skips stopped, from what COVER found over the last target: "target_gone" when
+ * it was gone, hidden or disabled (nothing to dismiss; the page changed under the plan), else
+ * "covered" (something is on top of it, usually a pop-up).
+ */
+export const skipReason = cover => ([TARGET_GONE, TARGET_HIDDEN].includes(cover) ? "target_gone" : "covered");
 
 /** Runs in the page: a short description of an element, e.g. dialog "Cookie consent" or iframe#sp "Consent". */
 export function describeNode(n) {
@@ -432,14 +440,18 @@ const READ_LANDING = `(() => {
   return landing(record);
 })()`;
 
+/** What COVER says when nothing covers the target because it is no longer there to click. */
+export const TARGET_GONE = "the target is gone";
+export const TARGET_HIDDEN = "the target is hidden or disabled";
+
 // Runs inside the page after LOCATE gave up on a target: what is on top at its aim point (the
 // centre of its first line box), or why there is no such point. A hit inside a dialog is
 // described as the dialog, since that is what the caller has to dismiss.
 const COVER = `((id) => {
   const describeNode = ${describeNode};
   const e = window.__jev?.nodes.get(id);
-  if (!e?.isConnected) return 'the target is gone';
-  if (e.matches(':disabled') || !e.checkVisibility()) return 'the target is hidden or disabled';
+  if (!e?.isConnected) return ${JSON.stringify(TARGET_GONE)};
+  if (e.matches(':disabled') || !e.checkVisibility()) return ${JSON.stringify(TARGET_HIDDEN)};
   const r = [...e.getClientRects()].find(r => r.width && r.height) || e.getBoundingClientRect();
   const x = r.x + r.width / 2, y = r.y + r.height / 2;
   if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'off screen';

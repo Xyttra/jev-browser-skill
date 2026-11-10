@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { blockReason, coveredRun, decide as decideStep, fingerprint, verdict } from "./core.mjs";
+import { blockReason, coveredRun, decide as decideStep, fingerprint, skipReason, verdict } from "./core.mjs";
 import { Chrome, sleep } from "./browser.mjs";
 
 const API = "https://api.typesafe.ai/v1/systemone";
@@ -111,15 +111,16 @@ export async function run({ chrome, ask, decide = decideStep, goal, texts = [], 
     if (stop) { status = stop; break; }
 
     // Not actionable: record the miss so Jev sees it and the target stops being offered. True
-    // when it ends the run: three skips in a row, e.g. under a consent pop-up.
+    // when it ends the run: three skips in a row, e.g. under a consent pop-up or on a re-rendered list.
     const skipped = async () => {
       const cover = trace.steps.at(-1).covered_by = await chrome.coveredBy(e.node);
       trace.steps.at(-1).executed = false;
       log(`   skipped: the target was covered or off screen, so nothing was clicked (on top: ${cover})`);
       history.push({ operation, target: `${e.role} "${e.label}"`, text: shown, url: page.url, fingerprint: fingerprint(page), page_changed: false, missed: true });
       if (!coveredRun(history)) return false;
-      status = "blocked"; blocked = trace.steps.at(-1).blocked_reason = "covered"; coveredBy = cover;
-      log(`   blocked: three targets in a row were covered; on top: ${cover}`);
+      status = "blocked"; blocked = trace.steps.at(-1).blocked_reason = skipReason(cover); coveredBy = cover;
+      log(blocked === "covered" ? `   blocked: three targets in a row were covered; on top: ${cover}`
+        : `   blocked: three targets in a row could not be clicked; the last one: ${cover}`);
       return true;
     };
     let acted = 0, clicked = false;

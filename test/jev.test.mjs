@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { run } from "../scripts/jev.mjs";
+import { TARGET_GONE, TARGET_HIDDEN } from "../scripts/core.mjs";
 
 const button = { index: 1, node: 7, role: "button", label: "Buy" };
 const page = { url: "https://shop.test/", title: "Shop", text: "A shop", elements: [button] };
@@ -73,4 +74,15 @@ test("an unsure step does nothing and hands back the proposal", async () => {
   assert.equal(result.unsure.proposed, 'CLICK button "Buy"');
   assert.equal(result.unsure.operation_p, 0.4);
   assert.equal(clicked, false);
+});
+
+test("three skips in a row whose last target is gone or hidden stop the run as target_gone", async () => {
+  for (const cover of [TARGET_GONE, TARGET_HIDDEN]) {
+    const chrome = stubChrome({ locate: async () => null, coveredBy: async () => cover });
+    const { result, trace } = await loop([click()], { chrome });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blocked_reason, "target_gone", cover);
+    assert.equal(trace.steps.at(-1).blocked_reason, "target_gone");
+    assert.equal(result.covered_by, cover, "the summary still says what was found");
+  }
 });
