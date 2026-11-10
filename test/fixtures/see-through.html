@@ -1,0 +1,19 @@
+<!doctype html>
+<title>See-through controls</title>
+<!-- Custom checkboxes built from an opacity:0 native input. "todo" is TodoMVC's toggle: the
+     transparent input sits on top of its row. "news" sits under its <label>, which draws the box.
+     "decoy" is transparent and covered by something that is not its label: not usable. -->
+<style>
+  body { font: 16px sans-serif; margin: 40px; }
+  .view { position: relative; width: 300px; height: 40px; }
+  .toggle { position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: 0; opacity: 0; }
+  .view label { display: block; line-height: 40px; padding-left: 50px; background: #eee; }
+  .row { position: relative; margin-top: 20px; height: 24px; }
+  #news { position: absolute; left: 0; top: 0; margin: 0; opacity: 0; }
+  .row label { position: relative; display: inline-block; padding-left: 30px; line-height: 24px; background: #ddd; }
+  #decoy { position: absolute; left: 400px; top: 300px; width: 30px; height: 30px; margin: 0; opacity: 0; }
+  #cover { position: absolute; left: 390px; top: 290px; width: 60px; height: 60px; background: #fff; }
+</style>
+<ul style="list-style:none;padding:0"><li><div class="view"><input class="toggle" type="checkbox" id="todo"><label>Walk the dog</label></div></li></ul>
+<div class="row"><input type="checkbox" id="news"><label for="news">Newsletter</label></div>
+<input type="radio" id="decoy" name="decoy"><div id="cover">cover</div>

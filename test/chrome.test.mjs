@@ -110,3 +110,24 @@ test("a link wrapped onto two lines is aimed at its text, not the blank centre o
   assert.deepEqual(await chrome.evaluate("clicks"), ["link"], "the click fired on the <a>");
   assert.equal(await chrome.evaluate("location.hash"), "#opened", "and followed it");
 });
+
+test("a see-through checkbox is offered when a click lands on it or its label, and toggles", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("see-through.html"));
+  const page = await chrome.observe();
+  const ids = await chrome.evaluate(`${JSON.stringify(page.elements.map(e => e.node))}.map(n => window.__jev.nodes.get(n).id)`);
+  const offered = Object.fromEntries(page.elements.map((e, i) => [ids[i], e]));
+  t.diagnostic(`offered: ${page.elements.map((e, i) => `${ids[i] || "-"}:${e.role} "${e.label}"`).join(", ")}`);
+  assert.equal(offered.todo?.role, "checkbox", "TodoMVC toggle: the transparent input is on top");
+  assert.equal(offered.news?.role, "checkbox", "under its label: the label takes the click");
+  assert.equal(offered.news.label, "Newsletter");
+  assert.ok(!offered.decoy, "transparent and covered by something else: not offered");
+
+  for (const id of ["todo", "news"]) {
+    await chrome.click(await chrome.locate(offered[id].node, ""), 0);
+    await sleep(100);
+    assert.equal(await chrome.evaluate(`document.getElementById('${id}').checked`), true, `${id} is checked`);
+  }
+  const after = await chrome.observe();
+  assert.equal(after.elements.find(e => e.node === offered.todo.node).checked, true, "Jev sees the new state");
+});

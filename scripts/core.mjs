@@ -95,13 +95,27 @@ export function sortState(e) {
 }
 
 /**
+ * Runs in the page: whether `e` is a native checkbox or radio that is rendered but fully
+ * transparent, the usual way a custom checkbox is built (TodoMVC's toggle). Only a hit test can
+ * tell whether it is usable: see aimPoint.
+ */
+export function seeThrough(e) {
+  return ['checkbox', 'radio'].includes(e.type) && e.checkVisibility({ checkVisibilityCSS: true }) &&
+    !e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+}
+
+/**
  * Runs in the page: the point where a mouse click on `e` lands on `e`. Tries its line boxes in
  * order (getClientRects: one per line of a wrapped link) and returns the centre of the first whose
  * hit test is `e` or inside it. A hit on an ancestor is a miss: the centre of a link wrapped onto
- * two lines lies in its parent's blank space. null when a box is on screen but none hits;
- * undefined when no box centre is on screen, so there is nothing to test yet.
+ * two lines lies in its parent's blank space. A see-through checkbox or radio (opacity 0, a
+ * custom box drawn over it) also counts as hit through its own <label>, since a click there
+ * toggles it. null when a box is on screen but none hits; undefined when no box centre is on
+ * screen, so there is nothing to test yet.
  */
 export function aimPoint(e, doc = document, view = window) {
+  const labels = seeThrough(e) ? [...(e.labels || [])] : [];
+  const lands = hit => hit && (hit === e || e.contains(hit) || labels.some(label => label === hit || label.contains(hit)));
   let tested = false;
   for (const r of e.getClientRects()) {
     if (!r.width || !r.height) continue;
@@ -109,7 +123,7 @@ export function aimPoint(e, doc = document, view = window) {
     if (x < 0 || y < 0 || x >= view.innerWidth || y >= view.innerHeight) continue;
     tested = true;
     const hit = doc.elementFromPoint(x, y);
-    if (hit && (hit === e || e.contains(hit))) return { x, y };
+    if (lands(hit)) return { x, y };
   }
   return tested ? null : undefined;
 }
@@ -118,7 +132,7 @@ export function aimPoint(e, doc = document, view = window) {
 // code-owned id → element map so later actions resolve to the exact observed node.
 const SNAPSHOT = `(() => {
   if (!document.body) return null;
-  const sortableHeader = ${sortableHeader}, sortState = ${sortState}, aimPoint = ${aimPoint};
+  const sortableHeader = ${sortableHeader}, sortState = ${sortState}, seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
   const identity = e => {
     if (!cache.ids.has(e)) cache.ids.set(e, cache.next++);
@@ -127,6 +141,9 @@ const SNAPSHOT = `(() => {
   for (const [id, e] of cache.nodes) if (!e.isConnected) cache.nodes.delete(id);
   const visible = e => !e.closest('[aria-hidden="true"],[inert]') &&
     e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+  // A see-through checkbox or radio is judged by hit test, not opacity: offered only when a click
+  // on screen lands on it or its label.
+  const usable = e => visible(e) || (!e.closest('[aria-hidden="true"],[inert]') && seeThrough(e) && Boolean(aimPoint(e)));
   const clean = s => (s || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
   const labelText = label => { // a <label> may wrap its control; keep the caption only
     const copy = label.cloneNode(true);
@@ -174,7 +191,7 @@ const SNAPSHOT = `(() => {
   for (const e of document.querySelectorAll(selector)) {
     if (elements.length >= 250) { omitted++; continue; } // Jev accepts at most 255 choices per question
     if (['file', 'hidden'].includes(e.type)) continue;
-    if (!visible(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
+    if (!usable(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
     const r = e.getBoundingClientRect(), kind = role(e);
     if (!kind || !r.width || !r.height) continue;
     // A grid cell or header holding its own link or button (a date picker day, a sort button) is
@@ -222,7 +239,7 @@ const SNAPSHOT = `(() => {
 // Runs inside the page just before input: re-check the observed node, bring it on screen, find
 // a point on it that a click would land on.
 const LOCATE = `((id, note, coordinates = true) => {
-  const aimPoint = ${aimPoint};
+  const seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
   const e = window.__jev?.nodes.get(id);
   if (!e?.isConnected || e.matches(':disabled') || !e.checkVisibility()) return null;
   e.closest('a[target]')?.removeAttribute('target'); // stay in this tab

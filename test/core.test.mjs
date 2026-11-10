@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, seeThrough, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -302,4 +302,25 @@ test("aimPoint: a hit on an ancestor is a miss, and nothing on screen is not tes
   assert.equal(aimPoint(e, hitting({ "100,10": parent }), screen), null, "the old ancestor allowance is gone");
   assert.equal(aimPoint(node([box(0, 900, 200, 20)]), hitting({}), screen), undefined, "below the fold");
   assert.equal(aimPoint(node([box(0, 0, 0, 0)]), hitting({}), screen), undefined, "an empty box");
+});
+
+const checkbox = ({ opacity = 0, hidden = false, labels = [], type = "checkbox" } = {}) => {
+  const e = node([box(0, 0, 20, 20)]);
+  return Object.assign(e, { type, labels, checkVisibility: o => !hidden && !(o?.checkOpacity && opacity === 0) });
+};
+
+test("seeThrough: a rendered native checkbox or radio at opacity 0, nothing else", () => {
+  assert.equal(seeThrough(checkbox()), true);
+  assert.equal(seeThrough(checkbox({ type: "radio" })), true);
+  assert.equal(seeThrough(checkbox({ opacity: 1 })), false, "visible");
+  assert.equal(seeThrough(checkbox({ hidden: true })), false, "not rendered at all");
+  assert.equal(seeThrough(checkbox({ type: "text" })), false, "only checkboxes and radios");
+});
+
+test("aimPoint: a see-through checkbox counts as hit through its own label, nothing else", () => {
+  const caption = {}, label = { contains: n => n === label || n === caption }, other = { contains: () => false };
+  assert.deepEqual(aimPoint(checkbox({ labels: [label] }), hitting({ "10,10": caption }), screen), { x: 10, y: 10 });
+  assert.equal(aimPoint(checkbox({ labels: [label] }), hitting({ "10,10": other }), screen), null, "covered by something else");
+  assert.equal(aimPoint(checkbox({ opacity: 1, labels: [label] }), hitting({ "10,10": caption }), screen), null,
+    "a visible checkbox is judged as before");
 });
