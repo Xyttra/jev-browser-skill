@@ -17,6 +17,9 @@ export const HOVER_MS = 120;
 /** The longest one WAIT step watches the page for a change. */
 export const WAIT_MS = 5000;
 
+/** The longest a screenshot may take. A page can stop painting (seen on a dialog example). */
+export const SCREENSHOT_MS = 5000;
+
 /**
  * Runs in the page on a field just typed into. null when the field gives no autocomplete hint;
  * otherwise whether a suggestion is visible yet: a [role=option] inside the list its
@@ -344,10 +347,23 @@ class Chrome {
     await this.send("Input.dispatchKeyEvent", { type: "keyUp", ...key });
   }
 
-  /** A screenshot of the viewport: a JPEG data URL by default, or PNG bytes. */
-  async screenshot(format = "jpeg") {
-    const { data } = await this.send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: 55 } : {}) });
+  /** A screenshot of the viewport: a JPEG data URL by default, or PNG bytes. Throws after `timeout` ms. */
+  async screenshot(format = "jpeg", timeout = SCREENSHOT_MS) {
+    const { data } = await this.send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: 55 } : {}) }, this.session, timeout);
     return format === "png" ? Buffer.from(data, "base64") : `data:image/jpeg;base64,${data}`;
+  }
+
+  /**
+   * The screenshot for a --trace step. It is only a record: Jev decides from the page text, so
+   * a screenshot that fails or hangs is noted and the run carries on.
+   */
+  async traceScreenshot(timeout = SCREENSHOT_MS) {
+    try {
+      return { screenshot: await this.screenshot("jpeg", timeout) };
+    } catch (error) {
+      console.error(`   warning: no screenshot for this trace step (${error.message}); carrying on`);
+      return { screenshot: null, screenshot_error: error.message };
+    }
   }
 
   /** Close what we opened: our window, or our tab in someone else's browser. */

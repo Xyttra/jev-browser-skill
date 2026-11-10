@@ -2,7 +2,7 @@
 // input sequence of a click on a Chrome whose DevTools connection is a recorder. No browser needed.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { suggestionsShown, Chrome, HOVER_MS, WAIT_MS } from "../scripts/browser.mjs";
+import { suggestionsShown, Chrome, HOVER_MS, WAIT_MS, SCREENSHOT_MS } from "../scripts/browser.mjs";
 
 /** A Chrome whose every DevTools command is recorded with the time it was sent. */
 const recorder = () => {
@@ -78,4 +78,25 @@ test("WAIT gives up after its limit when nothing changes, and a page mid-navigat
   assert.ok(waited >= 120 && waited < 250, `${waited}ms`);
   assert.ok(chrome.reads >= 4, "kept polling");
   assert.equal(WAIT_MS, 5000, "three unchanged WAITs then allow about 15s before the run stops");
+});
+
+test("a screenshot gives up after 5s, not the 20s every other command gets", async () => {
+  const chrome = new Chrome({ owned: true });
+  let waited;
+  chrome.send = async (method, params, session, timeout) => { waited = timeout; return { data: "AAAA" }; };
+  assert.equal(await chrome.screenshot(), "data:image/jpeg;base64,AAAA");
+  assert.equal(waited, SCREENSHOT_MS);
+  assert.equal(SCREENSHOT_MS, 5000);
+  await chrome.screenshot("png");
+  assert.equal(waited, SCREENSHOT_MS, "the final --screenshot file too");
+});
+
+test("a trace screenshot that hangs is recorded as missing and the run carries on", async () => {
+  const chrome = new Chrome({ owned: true });
+  chrome.session = "s";
+  chrome.socket = { send() {} }; // the page never answers
+  const shot = await chrome.traceScreenshot(50);
+  assert.equal(shot.screenshot, null);
+  assert.match(shot.screenshot_error, /Page\.captureScreenshot got no reply/);
+  assert.equal(chrome.pending.size, 0, "no reply is left waiting");
 });

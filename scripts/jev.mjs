@@ -108,7 +108,7 @@ async function main() {
       }
       if (page.omitted) console.error(`   warning: ${page.omitted} controls beyond the first 250 were not offered to Jev (255-choice limit per question)`);
 
-      const screenshot = args.trace ? await chrome.screenshot() : null;
+      const shot = args.trace ? await chrome.traceScreenshot() : { screenshot: null };
       const decision = await decide(ask, { goal: args.goal, page, texts: args.text, secret: args.secret, history, model });
       modelMs += decision.ms;
       const { operation, e, option, text } = decision;
@@ -122,7 +122,7 @@ async function main() {
         if (decision.probabilities.target) console.error("   targets: " + top(decision.probabilities.target, k => `[${k}] ${page.elements[Number(k.split(":")[0]) - 1].label}`));
       }
       trace.steps.push({
-        elapsed_ms: elapsed(), page: { ...page, screenshot }, calls: decision.calls,
+        elapsed_ms: elapsed(), page: { ...page, screenshot: shot.screenshot }, ...(shot.screenshot_error ? { screenshot_error: shot.screenshot_error } : {}), calls: decision.calls,
         decision: { operation, target: e && `[${e.index}] ${e.role} "${e.label}"`, option: option?.label, text: shown, p: decision.p, operation_p: decision.operation_p, checks: decision.checks, probabilities: decision.probabilities, ms: decision.ms },
       });
       const stop = verdict(decision);
@@ -182,7 +182,11 @@ async function main() {
       await chrome.settle();
     }
     page = await chrome.observe();
-    if (args.screenshot) writeFileSync(args.screenshot, await chrome.screenshot("png"));
+    if (args.screenshot) {
+      let png;
+      try { png = await chrome.screenshot("png"); } catch (error) { throw new Error(`could not save the --screenshot file: ${error.message}`); }
+      writeFileSync(args.screenshot, png);
+    }
   } finally {
     if (args.headless || args.close) await chrome.close();
     else chrome.socket.close();

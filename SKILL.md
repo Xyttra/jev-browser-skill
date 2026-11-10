@@ -35,7 +35,10 @@ from https://typesafe.ai — and do not try to work around it.
 - **`--url`**: start as close to the task as you can (the site itself, not a search engine).
 - `--screenshot out.png` saves the final page; `--headless` hides the window; `--close` closes
   the tab or window at the end (by default it stays open so the user can see the result);
-  `--max-steps N` caps actions (default 100).
+  `--max-steps N` caps actions (default 100). A screenshot that takes over 5 seconds fails:
+  for `--screenshot` that ends the run with an error; for `--trace` the step gets
+  `screenshot: null` and a `screenshot_error`, a warning is printed, and the run carries on.
+- `--trace run.json` saves every step (element table, request, answers, decision, screenshot).
 - `--browser`: `auto` (default) uses the user's own browser when it allows remote debugging,
   else a dedicated Jev window that is reused across runs. `yours` and `own` force either.
 
