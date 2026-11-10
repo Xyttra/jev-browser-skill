@@ -11,6 +11,9 @@ import { SNAPSHOT, LOCATE, fingerprint } from "./core.mjs";
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+/** How long the pointer rests on a target before pressing, so hover handlers can run. */
+export const HOVER_MS = 120;
+
 /**
  * Runs in the page on a field just typed into. null when the field gives no autocomplete hint;
  * otherwise whether a suggestion is visible yet: a [role=option] inside the list its
@@ -269,7 +272,14 @@ class Chrome {
     return this.evaluate(`${LOCATE}(${Number(node)}, ${JSON.stringify(note)}, ${Boolean(coordinates)})`);
   }
 
-  async click({ x, y }) {
+  /**
+   * Hover, then click. The pointer moves onto the point first and rests a beat, so a menu that
+   * opens on hover opens as a person's would. It stays there afterwards: moving it away would
+   * close the submenu the next observe should see.
+   */
+  async click({ x, y }, hover = HOVER_MS) {
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 });
+    await sleep(hover);
     // Press and release must not straddle a round trip. A page that reflows in between
     // takes the release somewhere else, and the browser then synthesizes no click at all.
     await Promise.all([
@@ -278,7 +288,7 @@ class Chrome {
     ]);
   }
 
-  /** Move the pointer off the page, closing hover menus it left open, e.g. after a click navigated. */
+  /** Move the pointer off the page, closing hover menus it left open. Used only when a target is covered. */
   async park() {
     await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: -1, y: -1 });
   }

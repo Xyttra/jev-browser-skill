@@ -1,0 +1,26 @@
+<!doctype html>
+<title>Hover menu</title>
+<!-- A hover-intent menu, like the jQuery UI menu on the-internet: the submenu opens 300ms after
+     the pointer moves over its item and closes when the pointer leaves. A click on the item does
+     nothing by itself, and a press with no move before it sends no mousemove. -->
+<style>
+  ul { list-style: none; margin: 0; padding: 0; }
+  #menu { width: 150px; margin: 40px; }
+  #menu > li { position: relative; }
+  #menu a { display: block; padding: 6px 10px; }
+  .sub { display: none; position: absolute; left: 100%; top: 0; width: 150px; background: #eee; }
+  .sub.open { display: block; }
+</style>
+<ul id="menu">
+  <li><a href="#">Disabled</a></li>
+  <li id="enabled"><a href="#">Enabled</a>
+    <ul class="sub"><li><a href="#">Downloads</a></li><li><a href="#">Back to JQuery UI</a></li></ul>
+  </li>
+</ul>
+<script>
+  const item = document.getElementById('enabled'), sub = item.querySelector('.sub');
+  let timer;
+  item.addEventListener('mousemove', () => { if (!timer) timer = setTimeout(() => sub.classList.add('open'), 300); });
+  item.addEventListener('mouseleave', () => { clearTimeout(timer); timer = null; sub.classList.remove('open'); });
+  document.addEventListener('click', e => e.preventDefault());
+</script>
