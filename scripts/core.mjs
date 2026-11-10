@@ -112,6 +112,14 @@ export function sortState(e) {
 /** Lists nested inside a control that are its submenu, not its caption. */
 export const SUBMENUS = '[role="menu"],[role="menubar"],[role="listbox"],ul,ol';
 
+/** What counts as a control when deciding whose caption a piece of text is. */
+export const CONTROLS = 'a[href],button,input,select,textarea,summary,[contenteditable="true"],' +
+  ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemradio', 'menuitemcheckbox',
+    'option', 'combobox', 'textbox', 'searchbox', 'spinbutton'].map(r => `[role="${r}"]`).join(',');
+
+/** Repeated items: the text of one never captions a control in another. */
+export const ITEMS = 'li,tr,[role="row"],[role="listitem"]';
+
 /**
  * Runs in the page: the visible text of `e` without any submenu nested in it. A jQuery UI menu
  * item holds its submenu, so once that opens innerText reads "Enabled Downloads Back to JQuery
@@ -168,6 +176,7 @@ const SNAPSHOT = `(() => {
   if (!document.body) return null;
   const sortableHeader = ${sortableHeader}, sortState = ${sortState}, seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
   const SUBMENUS = ${JSON.stringify(SUBMENUS)}, ownText = ${ownText};
+  const CONTROLS = ${JSON.stringify(CONTROLS)}, ITEMS = ${JSON.stringify(ITEMS)};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
   const identity = e => {
     if (!cache.ids.has(e)) cache.ids.set(e, cache.next++);
@@ -185,10 +194,27 @@ const SNAPSHOT = `(() => {
     copy.querySelectorAll('select,input,textarea,button').forEach(control => control.remove());
     return copy.textContent;
   };
-  const nearby = e => { // the short text just before a bare control, e.g. a table-cell caption
+  // The short text beside a bare control, e.g. a table-cell caption, or the <label> after a
+  // TodoMVC toggle that names no control. A checkbox or radio is captioned after it, so its next
+  // sibling is read first; anything else is captioned before it. A sibling that is or holds a
+  // control names that control, and a list item or table row is another item's caption: the
+  // walk stops at either.
+  // Bare text beside it counts too ("<input type=checkbox> Select all").
+  const beside = (n, way) => { // the nearest sibling node that is not blank text or a comment
+    do n = n[way]; while (n && (n.nodeType === 8 || (n.nodeType === 3 && !n.textContent.trim())));
+    return n;
+  };
+  const caption = n => {
+    if (!n || (n.nodeType === 1 && (n.matches(CONTROLS) || n.querySelector(CONTROLS)))) return '';
+    const text = clean(n.nodeType === 1 ? n.innerText : n.textContent);
+    return text.length <= 40 ? text : '';
+  };
+  const nearby = e => {
+    const after = ['checkbox', 'radio'].includes(e.type);
     for (let n = e, depth = 0; n && n !== document.body && depth < 3; n = n.parentElement, depth++) {
-      const text = clean(n.previousElementSibling?.innerText);
-      if (text && text.length <= 40) return text;
+      if (n.matches(ITEMS)) break;
+      const text = (after && caption(beside(n, 'nextSibling'))) || caption(beside(n, 'previousSibling'));
+      if (text) return text;
     }
     return '';
   };

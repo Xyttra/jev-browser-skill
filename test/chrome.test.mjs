@@ -121,6 +121,9 @@ test("a see-through checkbox is offered when a click lands on it or its label, a
   const offered = Object.fromEntries(page.elements.map((e, i) => [ids[i], e]));
   t.diagnostic(`offered: ${page.elements.map((e, i) => `${ids[i] || "-"}:${e.role} "${e.label}"`).join(", ")}`);
   assert.equal(offered.todo?.role, "checkbox", "TodoMVC toggle: the transparent input is on top");
+  assert.deepEqual(["todo", "todo2", "todo3"].map(id => offered[id]?.label), ["Buy milk", "Walk the dog", "Pay rent"],
+    "an unlabelled toggle takes its own row's text, never the row above's");
+  assert.equal(offered.bare?.label, "Select all", "bare text after a checkbox is its caption");
   assert.equal(offered.news?.role, "checkbox", "under its label: the label takes the click");
   assert.equal(offered.news.label, "Newsletter");
   assert.ok(!offered.decoy, "transparent and covered by something else: not offered");
