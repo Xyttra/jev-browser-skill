@@ -155,7 +155,10 @@ async function main() {
         acted = performance.now();
         if (operation === "SELECT") await chrome.select(e.node, option.value);
         else await chrome.click(point);
-        if (operation === "TYPE") await chrome.type(e.node, text);
+        if (operation === "TYPE") {
+          await chrome.type(e.node, text);
+          await chrome.awaitSuggestions(e.node); // so the next observe sees the suggestion list
+        }
       } else if (operation === "ENTER") { acted = performance.now(); await chrome.enter(); }
       else await sleep(250); // WAIT: give the page a moment, then observe again
       trace.steps.at(-1).executed = true;

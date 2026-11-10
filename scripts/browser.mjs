@@ -11,6 +11,23 @@ import { SNAPSHOT, LOCATE, fingerprint } from "./core.mjs";
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Runs in the page on a field just typed into. null when the field gives no autocomplete hint;
+ * otherwise whether a suggestion is visible yet: a [role=option] inside the list its
+ * aria-controls/aria-owns name, or anywhere on the page when it names none.
+ */
+export function suggestionsShown(e, doc = document) {
+  if (!e) return null;
+  const has = name => e.getAttribute(name) !== null;
+  const hinted = ['combobox', 'searchbox'].includes(e.getAttribute('role')) ||
+    ['aria-autocomplete', 'aria-controls', 'aria-owns', 'list'].some(has);
+  if (!hinted) return null;
+  const ids = ['aria-controls', 'aria-owns'].flatMap(name => (e.getAttribute(name) || '').split(/\s+/)).filter(Boolean);
+  const scopes = ids.length ? ids.map(id => doc.getElementById(id)).filter(Boolean) : [doc];
+  return scopes.some(scope => [...scope.querySelectorAll('[role="option"]')]
+    .some(o => o.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })));
+}
+
 const HOME = homedir();
 const LOCAL = process.env.LOCALAPPDATA || join(HOME, "AppData", "Local");
 const OWN_PROFILE = process.env.JEV_PROFILE || join(HOME, ".jev-browser", "chrome");
@@ -269,6 +286,13 @@ class Chrome {
   async type(node, text) {
     await this.evaluate(`(e => e.select ? e.select() : document.execCommand('selectAll'))(window.__jev.nodes.get(${Number(node)}))`);
     await this.send("Input.insertText", { text });
+  }
+
+  /** After typing into an autocomplete field, give its suggestions up to 300ms to appear. Other fields get no wait. */
+  async awaitSuggestions(node) {
+    const check = `(${suggestionsShown})(window.__jev?.nodes.get(${Number(node)}))`;
+    const until = performance.now() + 300;
+    while ((await this.evaluate(check)) === false && performance.now() < until) await sleep(50);
   }
 
   async select(node, value) {
