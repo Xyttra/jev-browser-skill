@@ -197,6 +197,8 @@ test("verdict: a confident action runs, an unsure one is handed back", () => {
   const act = (operation_p, checks = { goal_met: 0.1, stuck: 0.1 }) => verdict({ operation: "CLICK", operation_p, checks });
   assert.equal(act(0.9), null);
   assert.equal(act(0.7), null);
+  assert.equal(act(0.6), null, "0.6 is the bar");
+  assert.equal(act(0.59), "unsure");
   assert.equal(act(0.5), "unsure");
   assert.equal(verdict({ operation: "WAIT", operation_p: 0.3, checks: {} }), null, "WAIT only looks again");
 });

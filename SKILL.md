@@ -65,9 +65,9 @@ Then a JSON summary: `status` (`done`, `blocked`, `unsure`, `max_steps`), `steps
 `page_text` (or the screenshot). Exit code is 0 only for `done`.
 
 Code, not Jev, decides when to stop. Each step also asks two yes/no checks, `goal_met` and
-`stuck`. `done` needs `goal_met` ≥ 0.7 (or ≥ 0.85 on its own); `blocked` comes from a BLOCKED
+`stuck`. `done` needs `goal_met` ≥ 0.6 (or ≥ 0.85 on its own); `blocked` comes from a BLOCKED
 answer, `stuck` ≥ 0.85, or three steps that changed nothing. An action runs only when Jev's
-choice of operation is ≥ 0.7 sure; otherwise the run stops with `unsure` before acting, and
+choice of operation is ≥ 0.6 sure; otherwise the run stops with `unsure` before acting, and
 the summary's `unsure` field shows what Jev proposed, its top operations and targets, and the
 checks. Nothing was done on that step.
 

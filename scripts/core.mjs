@@ -43,11 +43,12 @@ export const CHECKS = {
   stuck: "Recent actions show the run is not making progress toward the goal, and no offered operation is likely to make progress.",
 };
 
-// act: the lowest operation probability acted on without asking the caller (TypeSafe's 0.7).
+// act: the lowest operation probability acted on without asking the caller. 0.6, not TypeSafe's 0.7:
+// on a 38-task benchmark 0.6 passed 57/76 vs 52/76 with the same false-done count (1).
 // accept: the goal_met probability a DONE needs. stop: a check this sure ends the run on its own.
 // Only the operation is gated, not the target: a pick among dozens of controls is often right
 // at p≈0.5, while a pick among the handful of operations is not.
-export const THRESHOLDS = { act: 0.7, accept: 0.7, stop: 0.85 };
+export const THRESHOLDS = { act: 0.6, accept: 0.6, stop: 0.85 };
 
 /**
  * Whether to stop after this decision: "done", "blocked", "unsure" (hand back to the caller), or
