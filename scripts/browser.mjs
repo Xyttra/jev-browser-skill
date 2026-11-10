@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SNAPSHOT, LOCATE, COVER, ARM_LANDING, READ_LANDING, fingerprint } from "./core.mjs";
+import { SNAPSHOT, LOCATE, REAIM, COVER, ARM_LANDING, READ_LANDING, fingerprint } from "./core.mjs";
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -303,17 +303,37 @@ class Chrome {
    * opens on hover opens as a person's would. It stays there afterwards: moving it away would
    * close the submenu the next observe should see.
    *
-   * Given the target's node id, it also records where the press and the click landed and returns
+   * Given the target's node id, the hover may have changed what is under the pointer (a "Quick
+   * view" layer on a product tile), so the point is checked again before the press: pressed
+   * there if it still lands on the target, else at another point of the target that does, else
+   * not at all, and the click returns false (the target is covered or gone). A page that does
+   * not answer the check is not pressed either. A hover-intent menu whose click toggles it may
+   * now open on the hover and close on the click; that is accepted.
+   *
+   * Given the node id, it also records where the press and the click landed and returns
    * { mousedown, click, on_target } (see core.mjs landing), or null when the page had already
-   * moved on and could not say. A diagnostic only: it changes nothing about the click.
+   * moved on and could not say.
    */
   async click({ x, y }, hover = HOVER_MS, node) {
     const recording = node != null && (await this.evaluate(`${ARM_LANDING}(${Number(node)})`));
     await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 });
     await sleep(hover);
+    const moves = [];
+    if (node != null) {
+      const point = await this.evaluate(`${REAIM}(${Number(node)}, ${x}, ${y})`);
+      if (!point) {
+        if (recording) await this.evaluate(READ_LANDING); // take the listeners down again
+        return false;
+      }
+      if (point.x !== x || point.y !== y) {
+        ({ x, y } = point);
+        moves.push(this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 }));
+      }
+    }
     // Press and release must not straddle a round trip. A page that reflows in between
     // takes the release somewhere else, and the browser then synthesizes no click at all.
     await Promise.all([
+      ...moves,
       this.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 }),
       this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 }),
     ]);

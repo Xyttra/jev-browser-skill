@@ -1,0 +1,25 @@
+<!doctype html>
+<title>Hover overlay</title>
+<!-- Product tiles that react to hover. "tile": a "Quick view" layer covers the whole "Add to
+     cart" link 60ms after the pointer enters, so a press after the hover beat would hit it.
+     "story": a two-line link whose first line a "Save" badge covers on hover; its second line
+     is still the link's. Every click is logged and not followed. -->
+<style>
+  body { font: 16px sans-serif; margin: 20px; }
+  #tile { position: relative; width: 220px; height: 80px; background: #eee; }
+  #quick { position: absolute; inset: 0; background: rgba(0, 0, 0, .5); color: #fff; display: none; }
+  #card { position: relative; width: 170px; margin-top: 30px; }
+  #save { position: absolute; left: 0; top: 0; width: 100%; height: 1.3em; background: #fc9; display: none; }
+</style>
+<div id="tile"><a id="add" href="#add" style="display:block;width:220px;height:80px">Add to cart</a><button id="quick">Quick view</button></div>
+<div id="card"><a id="story" href="#story">A story headline long enough to wrap</a><button id="save">Save</button></div>
+<script>
+  const reveal = (host, layer) => {
+    host.addEventListener('mouseenter', () => setTimeout(() => (layer.style.display = 'block'), 60));
+    host.addEventListener('mouseleave', () => (layer.style.display = 'none'));
+  };
+  reveal(document.getElementById('tile'), document.getElementById('quick'));
+  reveal(document.getElementById('card'), document.getElementById('save'));
+  window.log = [];
+  document.addEventListener('click', e => { log.push(e.target.id || e.target.tagName); e.preventDefault(); }, true);
+</script>

@@ -167,9 +167,11 @@ test("a click records where its mousedown and click landed, and whether that was
     click: 'a#link "A story headline long enough that it wraps onto line two"', on_target: true });
 
   const centre = await chrome.evaluate(`(r => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 }))(document.getElementById('link').getBoundingClientRect())`);
-  const missed = await chrome.click(centre, 0, link.node); // the old aim point: the <li>'s blank space
-  assert.equal(missed.on_target, false);
-  assert.match(missed.click, /^li#story/);
+  // A point that does not belong to the target (the old aim point, the <li>'s blank space) is
+  // never pressed: the check before the press moves it onto the link.
+  const moved = await chrome.click(centre, 0, link.node);
+  assert.equal(moved.on_target, true);
+  assert.match(moved.click, /^a#link/);
   assert.equal(await chrome.evaluate("window.__jevLanding"), null, "the listeners are gone");
 });
 
@@ -200,4 +202,26 @@ test("a checkbox whose label is what a hit test finds is offered, and a click on
     assert.equal(await chrome.evaluate(`document.getElementById('${id}').checked`), true, `${id} is checked`);
     assert.equal(landed.on_target, true, "a click through the control's label is on target");
   }
+});
+
+test("a hover pop-up that covers the target before the press takes no click", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("hover-overlay.html"));
+  const offered = await byId(await chrome.observe());
+  const story = await chrome.evaluate("document.getElementById('story').getClientRects().length");
+  assert.equal(story, 2, "fixture check: the story link wraps");
+
+  const point = await chrome.locate(offered.add.node, "");
+  const pressed = await chrome.click(point, undefined, offered.add.node);
+  await sleep(100);
+  t.diagnostic(`whole target covered: click returned ${JSON.stringify(pressed)}, clicks ${await chrome.evaluate("JSON.stringify(log)")}`);
+  assert.deepEqual(await chrome.evaluate("log"), [], "Quick view, now under the pointer, is not clicked");
+  assert.equal(pressed, false, "the click reports that it did not press");
+
+  await chrome.evaluate("log.length = 0");
+  const line1 = await chrome.locate(offered.story.node, "");
+  await chrome.click(line1, undefined, offered.story.node);
+  await sleep(100);
+  t.diagnostic(`first line covered: clicks ${await chrome.evaluate("JSON.stringify(log)")}`);
+  assert.deepEqual(await chrome.evaluate("log"), ["story"], "pressed on the link's other line instead");
 });

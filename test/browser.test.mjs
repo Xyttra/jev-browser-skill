@@ -50,6 +50,30 @@ test("a click hovers the target first, rests, then presses and releases there", 
   assert.ok(HOVER_MS >= 100 && HOVER_MS <= 150);
 });
 
+/** A recorder whose page answers the pre-press check with `reaim` (ARM/READ_LANDING answer true). */
+const rechecking = reaim => {
+  const { chrome, sent } = recorder();
+  chrome.evaluate = async expression => (expression.includes("elementFromPoint(x, y)") ? reaim : true);
+  return { chrome, sent };
+};
+
+test("after the hover beat the point is checked again: pressed there, at another point of the target, or not at all", async () => {
+  let { chrome, sent } = rechecking({ x: 40, y: 70 });
+  await chrome.click({ x: 40, y: 70 }, 0, 7);
+  assert.deepEqual(sent.map(e => [e.type, e.x, e.y]), [["mouseMoved", 40, 70], ["mousePressed", 40, 70], ["mouseReleased", 40, 70]]);
+
+  ({ chrome, sent } = rechecking({ x: 40, y: 90 }));
+  await chrome.click({ x: 40, y: 70 }, 0, 7);
+  assert.deepEqual(sent.map(e => [e.type, e.x, e.y]), [["mouseMoved", 40, 70], ["mouseMoved", 40, 90], ["mousePressed", 40, 90], ["mouseReleased", 40, 90]],
+    "the hover covered that point: the press moves to one that is still the target's");
+
+  for (const reaim of [null, undefined]) {
+    ({ chrome, sent } = rechecking(reaim));
+    assert.equal(await chrome.click({ x: 40, y: 70 }, 0, 7), false, "nothing of the target is left under any point");
+    assert.ok(!sent.some(e => e.type === "mousePressed"), `never pressed (${reaim})`);
+  }
+});
+
 test("a click leaves the pointer on the target, so a submenu it opened stays open", async () => {
   const { chrome, sent } = recorder();
   await chrome.click({ x: 5, y: 5 }, 0);

@@ -179,6 +179,22 @@ export function seeThrough(e) {
 }
 
 /**
+ * Runs in the page: whether a click whose hit test is `hit` reaches `e`: `hit` is `e` or inside
+ * it, or, for a checkbox or radio, inside one of its own <label>s but not on a link or button
+ * inside that label ("I agree to the Terms"), which would take the click itself.
+ */
+export function landsOn(e, hit) {
+  if (!hit) return false;
+  if (hit === e || e.contains(hit)) return true;
+  if (!['checkbox', 'radio'].includes(e.type)) return false;
+  return [...(e.labels || [])].some(label => {
+    if (label !== hit && !label.contains(hit)) return false;
+    const control = hit.closest?.('a[href],button,[role="link"],[role="button"]');
+    return !(control && label.contains(control));
+  });
+}
+
+/**
  * Runs in the page: the point where a mouse click on `e` lands on `e`. Tries its line boxes in
  * order (getClientRects: one per line of a wrapped link) and returns the centre of the first whose
  * hit test is `e` or inside it. A hit on an ancestor is a miss: the centre of a link wrapped onto
@@ -191,12 +207,7 @@ export function seeThrough(e) {
  */
 export function aimPoint(e, doc = document, view = window) {
   const labels = ['checkbox', 'radio'].includes(e.type) ? [...(e.labels || [])] : [];
-  const viaLabel = hit => labels.some(label => {
-    if (label !== hit && !label.contains(hit)) return false;
-    const control = hit.closest?.('a[href],button,[role="link"],[role="button"]');
-    return !(control && label.contains(control));
-  });
-  const lands = hit => hit && (hit === e || e.contains(hit) || viaLabel(hit));
+  const lands = hit => landsOn(e, hit);
   let tested = false;
   for (const box of [e, ...labels]) {
     for (const r of box.getClientRects()) {
@@ -214,7 +225,7 @@ export function aimPoint(e, doc = document, view = window) {
 // code-owned id → element map so later actions resolve to the exact observed node.
 const SNAPSHOT = `(() => {
   if (!document.body) return null;
-  const NOSORT = ${NOSORT}, sortableHeader = ${sortableHeader}, sortState = ${sortState}, columnHeader = ${columnHeader}, seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
+  const NOSORT = ${NOSORT}, sortableHeader = ${sortableHeader}, sortState = ${sortState}, columnHeader = ${columnHeader}, seeThrough = ${seeThrough}, landsOn = ${landsOn}, aimPoint = ${aimPoint};
   const SUBMENUS = ${JSON.stringify(SUBMENUS)}, LISTS = ${JSON.stringify(LISTS)}, ownText = ${ownText};
   const CONTROLS = ${JSON.stringify(CONTROLS)}, ITEMS = ${JSON.stringify(ITEMS)};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
@@ -342,7 +353,7 @@ const SNAPSHOT = `(() => {
 // Runs inside the page just before input: re-check the observed node, bring it on screen, find
 // a point on it that a click would land on.
 const LOCATE = `((id, note, coordinates = true) => {
-  const aimPoint = ${aimPoint};
+  const landsOn = ${landsOn}, aimPoint = ${aimPoint};
   const e = window.__jev?.nodes.get(id);
   if (!e?.isConnected || e.matches(':disabled') || !e.checkVisibility()) return null;
   e.closest('a[target]')?.removeAttribute('target'); // stay in this tab
@@ -386,6 +397,18 @@ export function landing({ target, mousedown, click }) {
     on_target: Boolean(hit && target && (within(target) || [...(target.labels || [])].some(within))) };
 }
 
+// Runs inside the page after the hover beat, just before the press: the hover may have put
+// something else (a "Quick view" layer) under the pointer. The same point if it still lands on
+// the target, else another point of the target that does, else null: the target is gone or
+// covered and nothing is pressed. No scroll, no highlight.
+const REAIM = `((id, x, y) => {
+  const landsOn = ${landsOn}, aimPoint = ${aimPoint};
+  const e = window.__jev?.nodes.get(id);
+  if (!e?.isConnected || e.matches(':disabled') || !e.checkVisibility()) return null;
+  if (landsOn(e, document.elementFromPoint(x, y))) return { x, y };
+  return aimPoint(e) || null;
+})`;
+
 // Runs inside the page just before a click: one-shot capturing listeners on document record
 // the target of the next mousedown and click. Listeners left from a click that never fired go.
 const ARM_LANDING = `((id) => {
@@ -424,7 +447,7 @@ const COVER = `((id) => {
   return describeNode(hit?.closest('dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]') || hit) || 'nothing';
 })`;
 
-export { SNAPSHOT, LOCATE, COVER, ARM_LANDING, READ_LANDING };
+export { SNAPSHOT, LOCATE, REAIM, COVER, ARM_LANDING, READ_LANDING };
 
 /** What a page looks like for change detection: the same fingerprint means nothing happened. */
 export const fingerprint = page => JSON.stringify([page.url, page.text, page.elements.map(e => [e.node, e.value, e.checked, e.expanded, e.sort])]);

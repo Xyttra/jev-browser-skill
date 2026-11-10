@@ -141,6 +141,18 @@ async function main() {
       }
       if (stop) { status = stop; break; }
 
+      // Not actionable: record the miss so Jev sees it and the target stops being offered. True
+      // when it ends the run: three skips in a row, e.g. under a consent pop-up.
+      const skipped = async () => {
+        const cover = trace.steps.at(-1).covered_by = await chrome.coveredBy(e.node);
+        trace.steps.at(-1).executed = false;
+        console.log(`   skipped: the target was covered or off screen, so nothing was clicked (on top: ${cover})`);
+        history.push({ operation, target: `${e.role} "${e.label}"`, text: shown, url: page.url, fingerprint: fingerprint(page), page_changed: false, missed: true });
+        if (!coveredRun(history)) return false;
+        status = "blocked"; blocked = trace.steps.at(-1).blocked_reason = "covered"; coveredBy = cover;
+        console.log(`   blocked: three targets in a row were covered; on top: ${cover}`);
+        return true;
+      };
       let acted = 0;
       if (e) {
         const aims = operation !== "SELECT"; // a SELECT needs no coordinates
@@ -150,18 +162,7 @@ async function main() {
           await chrome.settle();
           point = await chrome.locate(e.node, "", aims);
         }
-        if (!point) { // still not actionable: record the miss so Jev sees it and the target stops being offered
-          const cover = trace.steps.at(-1).covered_by = await chrome.coveredBy(e.node);
-          trace.steps.at(-1).executed = false;
-          console.log(`   skipped: the target was covered or off screen, so nothing was clicked (on top: ${cover})`);
-          history.push({ operation, target: `${e.role} "${e.label}"`, text: shown, url: page.url, fingerprint: fingerprint(page), page_changed: false, missed: true });
-          if (coveredRun(history)) { // three skips in a row: something covers the page, e.g. a consent pop-up
-            status = "blocked"; blocked = trace.steps.at(-1).blocked_reason = "covered"; coveredBy = cover;
-            console.log(`   blocked: three targets in a row were covered; on top: ${cover}`);
-            break;
-          }
-          continue;
-        }
+        if (!point) { if (await skipped()) break; continue; }
         if (!args.headless) { // the highlight pause is long enough for a busy page to reflow
           await sleep(300);
           point = (await chrome.locate(e.node, "", aims)) ?? point;
@@ -169,7 +170,10 @@ async function main() {
         acted = performance.now();
         if (operation === "SELECT") await chrome.select(e.node, option.value);
         else {
-          const landed = trace.steps.at(-1).landed = await chrome.click(point, undefined, e.node);
+          const landed = await chrome.click(point, undefined, e.node);
+          // false: the hover put something over the whole target, so nothing was pressed
+          if (landed === false) { if (await skipped()) break; continue; }
+          trace.steps.at(-1).landed = landed;
           if (process.env.JEV_DEBUG && landed?.on_target === false) {
             console.error(`   warning: the click landed on ${landed.click ?? landed.mousedown ?? "nothing"}, not on the target`);
           }

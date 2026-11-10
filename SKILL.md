@@ -63,7 +63,8 @@ Each step prints one line: operation, target, Jev's probability, Jev latency, el
  3  DONE                                                                    p=1.00   197ms  +10.3s
 ```
 
-A `skipped:` line under a step means its target was covered or off screen, so nothing was clicked;
+A `skipped:` line under a step means its target was covered or off screen, so nothing was clicked
+(this includes a pop-up the hover itself opened over the target, such as a "Quick view" layer);
 it names what was on top (e.g. `dialog "Cookie consent"`). Jev sees the miss and picks something
 else. Three skips in a row stop the run as `blocked` with `blocked_reason: "covered"`.
 
