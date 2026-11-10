@@ -223,3 +223,8 @@ test("a menu radio or checkbox item is a click target that reports its checked s
   assert.equal(body.questions.click_target.criteria["1"].checked, "true");
   assert.equal(body.questions.click_target.criteria["2"].checked, "false");
 });
+
+test("the rules tell Jev to check a filter's own state, not just the results", () => {
+  const { body } = buildRequest({ ...base, page: loginPage() });
+  assert.match(body.questions.operation.instructions.rules, /do not prove a filter, sort or option was applied/);
+});

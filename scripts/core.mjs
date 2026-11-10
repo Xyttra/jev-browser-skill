@@ -15,6 +15,7 @@ several parts is advanced one part at a time; the later parts are not evidence o
 After typing a search query, submit it: press ENTER or click the search button.
 If an autocomplete suggestion matching the goal is visible, CLICK it.
 Do not toggle a checkbox or radio that is already in the requested state.
+Results that match the goal do not prove a filter, sort or option was applied; check the control's own state (checked, selected or current value).
 If recent actions show a route is not working, or it needs an operation that is not offered,
 take another route: menus, tabs, lists and links can reach the same page.
 DONE requires visible evidence that every requirement of the goal is satisfied.
