@@ -212,3 +212,14 @@ test("verdict: a very sure check stops the run whatever the operation", () => {
   assert.equal(verdict({ operation: "CLICK", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.9 } }), "blocked");
   assert.equal(verdict({ operation: "BLOCKED", operation_p: 0.6, checks: {} }), "blocked");
 });
+
+test("a menu radio or checkbox item is a click target that reports its checked state", () => {
+  const page = { url: "https://example.com/", title: "", text: "", elements: [
+    { node: 1, role: "menuitemradio", label: "Sort by price", checked: "true", op: "CLICK" },
+    { node: 2, role: "menuitemcheckbox", label: "In stock only", checked: "false", op: "CLICK" },
+  ] };
+  const { targets, body } = buildRequest({ ...base, page, texts: [] });
+  assert.deepEqual(Object.keys(targets.CLICK), ["1", "2"]);
+  assert.equal(body.questions.click_target.criteria["1"].checked, "true");
+  assert.equal(body.questions.click_target.criteria["2"].checked, "false");
+});

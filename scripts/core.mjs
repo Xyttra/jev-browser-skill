@@ -96,8 +96,8 @@ const SNAPSHOT = `(() => {
     (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName) ? '' : clean(e.innerText)) ||
     clean(e.getAttribute('title')) || clean(e.getAttribute('placeholder')) || nearby(e) ||
     clean(e.getAttribute('name')) || clean(e.querySelector?.('img[alt]')?.alt);
-  const roles = ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'option',
-    'combobox', 'textbox', 'searchbox', 'spinbutton'];
+  const roles = ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemradio',
+    'menuitemcheckbox', 'option', 'gridcell', 'combobox', 'textbox', 'searchbox', 'spinbutton'];
   const role = e => {
     const explicit = e.getAttribute('role');
     if (roles.includes(explicit)) return explicit;
@@ -122,6 +122,8 @@ const SNAPSHOT = `(() => {
     if (!visible(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
     const r = e.getBoundingClientRect(), kind = role(e);
     if (!kind || !r.width || !r.height) continue;
+    // A grid cell holding its own link or button (a date picker day) is offered through that control.
+    if (kind === 'gridcell' && e.querySelector('a[href],button,[role="link"],[role="button"]')) continue;
     if (r.bottom + scrollY <= 0 || r.right + scrollX <= 0) continue; // placed off the page, like a skip link
     const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
     if (cx >= 0 && cy >= 0 && cx < innerWidth && cy < innerHeight) { // on screen: offer it only if a click would land on it
