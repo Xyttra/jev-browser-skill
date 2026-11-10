@@ -2,12 +2,22 @@
 <title>Labels</title>
 <!-- Controls whose name or hit test is easy to get wrong.
      "plana"/"planb": links whose only text is inside a list, like some plan pickers.
-     "popup": a menu item with a plain <ul> submenu: the submenu is not part of its name. -->
+     "popup": a menu item with a plain <ul> submenu: the submenu is not part of its name.
+     "remember": a visible checkbox inside its <label>, with the custom box drawn by label::before
+     on top of it, so a hit test at the input returns the label.
+     "terms": an "sr-only" checkbox (1px, clipped) inside its <label>, which draws the box. -->
 <style>
   body { font: 16px sans-serif; margin: 20px; }
   .card { display: inline-block; width: 160px; vertical-align: top; }
   .sub { display: block; }
+  .pseudo { position: relative; padding-left: 4px; }
+  .pseudo::before { content: ''; position: absolute; left: 0; top: 0; width: 22px; height: 22px; background: #09c; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); margin: -1px; padding: 0; border: 0; }
+  .wrap { display: inline-block; position: relative; padding: 4px 4px 4px 28px; background: #eee; }
+  .wrap .box { position: absolute; left: 4px; top: 4px; width: 18px; height: 18px; background: #09c; }
 </style>
 <div><a class="card" id="plana" href="#a"><ul><li>Plan A</li></ul></a><a class="card" id="planb" href="#b"><ul><li>Plan B</li></ul></a></div>
 <ul><li><a id="popup" href="#p" aria-haspopup="true">Products<ul class="sub"><li>Shoes</li><li>Hats</li></ul></a></li></ul>
+<div><label class="pseudo"><input type="checkbox" id="remember" style="margin:0;width:18px;height:18px"> Remember me</label></div>
+<p><label class="wrap"><input type="checkbox" class="sr" id="terms"><span class="box"></span>Accept terms</label></p>
 <script>document.addEventListener('click', e => { if (e.target.closest('a')) e.preventDefault(); });</script>

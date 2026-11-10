@@ -181,3 +181,16 @@ test("a link whose text is all inside a list is named by that text, and a popup'
   assert.equal(offered.planb?.label, "Plan B", "not the link before it");
   assert.equal(offered.popup?.label, "Products", "a control with a popup keeps its submenu out of its name");
 });
+
+test("a checkbox whose label is what a hit test finds is offered, and a click on it toggles it", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("labels.html"));
+  const offered = await byId(await chrome.observe());
+  for (const [id, label] of [["remember", "Remember me"], ["terms", "Accept terms"]]) {
+    assert.equal(offered[id]?.label, label, `${id} is offered`);
+    const landed = await chrome.click(await chrome.locate(offered[id].node, ""), 0, offered[id].node);
+    await sleep(100);
+    t.diagnostic(`${id} landed: ${JSON.stringify(landed)}`);
+    assert.equal(await chrome.evaluate(`document.getElementById('${id}').checked`), true, `${id} is checked`);
+  }
+});

@@ -317,12 +317,29 @@ test("seeThrough: a rendered native checkbox or radio at opacity 0, nothing else
   assert.equal(seeThrough(checkbox({ type: "text" })), false, "only checkboxes and radios");
 });
 
-test("aimPoint: a see-through checkbox counts as hit through its own label, nothing else", () => {
-  const caption = {}, label = { contains: n => n === label || n === caption }, other = { contains: () => false };
+test("aimPoint: any checkbox or radio counts as hit through its own label, nothing else", () => {
+  const caption = {}, label = { contains: n => n === label || n === caption, getClientRects: () => [] }, other = { contains: () => false };
   assert.deepEqual(aimPoint(checkbox({ labels: [label] }), hitting({ "10,10": caption }), screen), { x: 10, y: 10 });
   assert.equal(aimPoint(checkbox({ labels: [label] }), hitting({ "10,10": other }), screen), null, "covered by something else");
-  assert.equal(aimPoint(checkbox({ opacity: 1, labels: [label] }), hitting({ "10,10": caption }), screen), null,
-    "a visible checkbox is judged as before");
+  assert.deepEqual(aimPoint(checkbox({ opacity: 1, labels: [label] }), hitting({ "10,10": label }), screen), { x: 10, y: 10 },
+    "a visible checkbox whose label draws the box over it (label::before)");
+  assert.deepEqual(aimPoint(checkbox({ type: "radio", labels: [label] }), hitting({ "10,10": caption }), screen), { x: 10, y: 10 });
+  const link = { closest: () => link };
+  const terms = { contains: n => n === terms || n === link, getClientRects: () => [] };
+  assert.equal(aimPoint(checkbox({ labels: [terms] }), hitting({ "10,10": link }), screen), null,
+    "a link inside the label opens the link, not the checkbox");
+  const field = Object.assign(node([box(0, 0, 20, 20)]), { type: "text", labels: [label] });
+  assert.equal(aimPoint(field, hitting({ "10,10": caption }), screen), null, "only checkboxes and radios");
+});
+
+test("aimPoint: when a checkbox's own box misses, its label's line boxes are tried", () => {
+  const label = { getClientRects: () => [box(100, 0, 80, 20)] };
+  label.contains = n => n === label;
+  const covered = checkbox({ labels: [label] });
+  assert.deepEqual(aimPoint(covered, hitting({ "10,10": {}, "140,10": label }), screen), { x: 140, y: 10 });
+  const offLeft = Object.assign(node([box(-9999, 0, 20, 20)]), { type: "radio", labels: [label] });
+  assert.deepEqual(aimPoint(offLeft, hitting({ "140,10": label }), screen), { x: 140, y: 10 }, "an input placed off screen");
+  assert.equal(aimPoint(covered, hitting({}), screen), null, "neither hits");
 });
 
 // ownText on fakes: a menu item holding a text node and a submenu with its own text.

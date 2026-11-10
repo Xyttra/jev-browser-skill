@@ -157,22 +157,30 @@ export function seeThrough(e) {
  * Runs in the page: the point where a mouse click on `e` lands on `e`. Tries its line boxes in
  * order (getClientRects: one per line of a wrapped link) and returns the centre of the first whose
  * hit test is `e` or inside it. A hit on an ancestor is a miss: the centre of a link wrapped onto
- * two lines lies in its parent's blank space. A see-through checkbox or radio (opacity 0, a
- * custom box drawn over it) also counts as hit through its own <label>, since a click there
- * toggles it. null when a box is on screen but none hits; undefined when no box centre is on
- * screen, so there is nothing to test yet.
+ * two lines lies in its parent's blank space. A checkbox or radio also counts as hit through
+ * one of its own <label>s, since a click there toggles it (a custom box drawn by the label, an
+ * sr-only or see-through input), except on a link or button inside the label ("I agree to the
+ * Terms"). When none of its own boxes hits, its labels' line boxes are tried too. null when a
+ * box is on screen but none hits; undefined when no box centre is on screen, so there is
+ * nothing to test yet.
  */
 export function aimPoint(e, doc = document, view = window) {
-  const labels = seeThrough(e) ? [...(e.labels || [])] : [];
-  const lands = hit => hit && (hit === e || e.contains(hit) || labels.some(label => label === hit || label.contains(hit)));
+  const labels = ['checkbox', 'radio'].includes(e.type) ? [...(e.labels || [])] : [];
+  const viaLabel = hit => labels.some(label => {
+    if (label !== hit && !label.contains(hit)) return false;
+    const control = hit.closest?.('a[href],button,[role="link"],[role="button"]');
+    return !(control && label.contains(control));
+  });
+  const lands = hit => hit && (hit === e || e.contains(hit) || viaLabel(hit));
   let tested = false;
-  for (const r of e.getClientRects()) {
-    if (!r.width || !r.height) continue;
-    const x = r.x + r.width / 2, y = r.y + r.height / 2;
-    if (x < 0 || y < 0 || x >= view.innerWidth || y >= view.innerHeight) continue;
-    tested = true;
-    const hit = doc.elementFromPoint(x, y);
-    if (lands(hit)) return { x, y };
+  for (const box of [e, ...labels]) {
+    for (const r of box.getClientRects()) {
+      if (!r.width || !r.height) continue;
+      const x = r.x + r.width / 2, y = r.y + r.height / 2;
+      if (x < 0 || y < 0 || x >= view.innerWidth || y >= view.innerHeight) continue;
+      tested = true;
+      if (lands(doc.elementFromPoint(x, y))) return { x, y };
+    }
   }
   return tested ? null : undefined;
 }
@@ -307,7 +315,7 @@ const SNAPSHOT = `(() => {
 // Runs inside the page just before input: re-check the observed node, bring it on screen, find
 // a point on it that a click would land on.
 const LOCATE = `((id, note, coordinates = true) => {
-  const seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
+  const aimPoint = ${aimPoint};
   const e = window.__jev?.nodes.get(id);
   if (!e?.isConnected || e.matches(':disabled') || !e.checkVisibility()) return null;
   e.closest('a[target]')?.removeAttribute('target'); // stay in this tab
