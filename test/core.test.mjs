@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, seeThrough, ownText, coveredRun, describeNode, landing, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, columnHeader, sortState, aimPoint, seeThrough, ownText, coveredRun, describeNode, landing, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -232,11 +232,12 @@ test("the rules tell Jev to check a filter's own state, not just the results", (
 });
 
 // A fake header cell: attributes, an optional onclick, the nearest thead/table, and its cursor.
-const th = ({ attrs = {}, onclick = null, thead = true, table = {}, cursor = "auto" } = {}) => {
+const th = ({ attrs = {}, onclick = null, thead = true, table = {}, cursor = "auto", row = { cursor: "auto" }, cells = ["TH"] } = {}) => {
   const el = attrs => ({ getAttribute: n => attrs[n] ?? null });
   return {
     getAttribute: n => attrs[n] ?? null, hasAttribute: n => n in attrs, onclick, cursor,
-    closest: s => (s === "thead" ? (thead ? {} : null) : s === "table" ? el(table) : null),
+    parentElement: { ...row, children: cells.map(tagName => ({ tagName })) },
+    closest: s => (s === "thead" ? (thead ? {} : null) : s === "table" ? el(table) : s === "tr" ? row : null),
   };
 };
 const style = e => ({ cursor: e.cursor });
@@ -248,6 +249,22 @@ test("a header looks sortable from aria-sort, a sort class, an onclick or a poin
   assert.ok(sortableHeader(th({ attrs: { onclick: "sort(0)" } }), style));
   assert.ok(sortableHeader(th({ onclick: () => {} }), style));
   assert.ok(sortableHeader(th({ cursor: "pointer" }), style));
+});
+
+test("a header is not sortable from a 'no sort' class, or a pointer cursor it shares with its row", () => {
+  for (const c of ["sorting_disabled", "sorter-false", "no-sort", "nosort", "unsortable", "not-sortable"]) {
+    assert.equal(sortableHeader(th({ attrs: { class: `header ${c}` }, table: { class: "tablesorter" } }), style), false, c);
+  }
+  assert.equal(sortableHeader(th({ cursor: "pointer", row: { cursor: "pointer" } }), style), false, "clickable rows");
+  assert.ok(sortableHeader(th({ cursor: "pointer", row: { cursor: "auto" } }), style), "its own pointer");
+  assert.ok(sortableHeader(th({ attrs: { class: "no-sort", "aria-sort": "none" } }), style), "aria-sort still counts");
+});
+
+test("only a th heading a column is a column header, not a row header", () => {
+  assert.equal(columnHeader(th()), true, "in a thead");
+  assert.equal(columnHeader(th({ thead: false, cells: ["TH", "TH"] })), true, "a header row of only th cells");
+  assert.equal(columnHeader(th({ thead: false, cells: ["TH", "TD"] })), false, "a th beside td cells heads its row");
+  assert.equal(columnHeader(th({ attrs: { scope: "row" } })), false, "scope=row");
 });
 
 test("a header row of a table with a sort class is sortable, as jQuery tablesorter marks it", () => {

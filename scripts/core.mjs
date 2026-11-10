@@ -89,12 +89,31 @@ export function describeNode(n) {
  * Runs in the page on a table header cell (th or [role=columnheader]): whether clicking it looks
  * like it sorts the table. The click handler itself is invisible to page script, so this reads
  * its traces: aria-sort, a sort class on the cell or (for a header row) on its table, as jQuery
- * tablesorter leaves on the table before the first sort, an onclick, or a pointer cursor.
+ * tablesorter leaves on the table before the first sort, an onclick, or a pointer cursor of its
+ * own. A class that says the column does not sort (sorting_disabled, sorter-false, no-sort)
+ * rules out the class traces; a cursor the cell shares with its row (clickable rows) is the
+ * row's, not the header's.
  */
 export function sortableHeader(e, style = getComputedStyle) {
-  const sorty = n => /sort/i.test(n?.getAttribute('class') || '');
+  const classes = n => (n?.getAttribute('class') || '').split(/\s+/);
+  const off = classes(e).some(c => NOSORT.test(c));
+  const sorty = n => !off && classes(n).some(c => /sort/i.test(c) && !NOSORT.test(c));
+  const row = e.closest('tr') || e.parentElement;
+  const cursor = style(e).cursor === 'pointer' && (!row || style(row).cursor !== 'pointer');
   return e.hasAttribute('aria-sort') || sorty(e) || e.hasAttribute('onclick') || typeof e.onclick === 'function' ||
-    style(e).cursor === 'pointer' || (Boolean(e.closest('thead')) && sorty(e.closest('table')));
+    cursor || (Boolean(e.closest('thead')) && sorty(e.closest('table')));
+}
+
+/** A class that says a column does not sort: DataTables sorting_disabled, tablesorter sorter-false, no-sort. */
+export const NOSORT = /(disabled|false|no-?sort|unsortable|not-?sortable)/i;
+
+/**
+ * Runs in the page on a th: whether it heads a column. A th in a thead or in a row of only th
+ * cells does; a row header (scope=row, or a th beside td cells) does not.
+ */
+export function columnHeader(e) {
+  if (/^row/i.test(e.getAttribute('scope') || '')) return false;
+  return Boolean(e.closest('thead')) || [...(e.parentElement?.children || [])].every(c => c.tagName === 'TH');
 }
 
 /**
@@ -110,7 +129,7 @@ export function sortState(e) {
   const aria = e.getAttribute('aria-sort');
   if (aria) return aria;
   const classes = (e.getAttribute('class') || '').split(/\s+/).filter(Boolean);
-  const sorty = classes.filter(c => /sort/i.test(c));
+  const sorty = classes.filter(c => /sort/i.test(c) && !NOSORT.test(c));
   if (sorty.some(c => /asc|desc|up|down/i.test(c))) return 'sorted';
   if (sorty.length || (classes.includes('header') && /sort/i.test(e.closest('table')?.getAttribute('class') || ''))) return 'unsorted';
 }
@@ -195,7 +214,7 @@ export function aimPoint(e, doc = document, view = window) {
 // code-owned id → element map so later actions resolve to the exact observed node.
 const SNAPSHOT = `(() => {
   if (!document.body) return null;
-  const sortableHeader = ${sortableHeader}, sortState = ${sortState}, seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
+  const NOSORT = ${NOSORT}, sortableHeader = ${sortableHeader}, sortState = ${sortState}, columnHeader = ${columnHeader}, seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
   const SUBMENUS = ${JSON.stringify(SUBMENUS)}, LISTS = ${JSON.stringify(LISTS)}, ownText = ${ownText};
   const CONTROLS = ${JSON.stringify(CONTROLS)}, ITEMS = ${JSON.stringify(ITEMS)};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
@@ -255,7 +274,7 @@ const SNAPSHOT = `(() => {
   const role = e => {
     const explicit = e.getAttribute('role');
     if (roles.includes(explicit)) return explicit;
-    if (e.tagName === 'TH' && !explicit) return 'columnheader';
+    if (e.tagName === 'TH' && !explicit) return columnHeader(e) ? 'columnheader' : null;
     if (e.tagName === 'BUTTON' || e.tagName === 'SUMMARY') return 'button';
     if (e.tagName === 'A') return 'link';
     if (e.tagName === 'SELECT') return 'dropdown';
@@ -277,9 +296,10 @@ const SNAPSHOT = `(() => {
     if (!usable(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
     const r = e.getBoundingClientRect(), kind = role(e);
     if (!kind || !r.width || !r.height) continue;
-    // A grid cell or header holding its own link or button (a date picker day, a sort button) is
-    // offered through that control. A header that does not look sortable is only a caption.
-    if (['gridcell', 'columnheader'].includes(kind) && e.querySelector('a[href],button,[role="link"],[role="button"]')) continue;
+    // A grid cell or header holding its own control (a date picker day, a sort button, a "select
+    // all" checkbox) is offered through that control. A header that does not look sortable is
+    // only a caption.
+    if (['gridcell', 'columnheader'].includes(kind) && e.querySelector('a[href],button,input,select,textarea,[role="link"],[role="button"],[role="checkbox"]')) continue;
     if (kind === 'columnheader' && !sortableHeader(e)) continue;
     if (r.bottom + scrollY <= 0 || r.right + scrollX <= 0) continue; // placed off the page, like a skip link
     if (aimPoint(e) === null) continue; // on screen: offer it only if a click would land on it

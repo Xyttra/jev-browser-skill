@@ -59,6 +59,11 @@ test("sortable table headers are offered as click targets, and a sort shows in t
   assert.deepEqual(headers.map(e => e.label), ["Last Name", "First Name", "Price"], "captions and a header holding a button are not offered");
   assert.equal(find(page, "Price").sort, "none", "aria-sort is the state");
   assert.equal(find(page, "Sort by date")?.role, "button", "the inner control is offered instead");
+  for (const label of ["Notes", "Tags", "Owner", "Clickable rows", "Row A", "Row B"]) {
+    assert.ok(!find(page, label), `${label}: a "no sort" class, an inherited cursor or a row header is not a sortable header`);
+  }
+  assert.ok(!find(page, "Select") || find(page, "Select").role === "checkbox", "a header holding a checkbox is not offered");
+  assert.equal(find(page, "Select")?.role, "checkbox", "its checkbox is, with the header's text");
   assert.equal(find(page, "Last Name").op, "CLICK");
   assert.equal(find(page, "Last Name").sort, "unsorted", "not sorted yet");
 

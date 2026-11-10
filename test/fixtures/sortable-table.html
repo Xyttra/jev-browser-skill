@@ -16,6 +16,19 @@
   <thead><tr><th>Caption only</th></tr></thead>
   <tbody><tr><th>Row header</th></tr></tbody>
 </table>
+<!-- Not sortable, though each leaves a trace that looks like it: a "no sort" class, a pointer
+     cursor inherited from clickable rows, a row header with a click handler, and a header that
+     only holds a "select all" checkbox (the checkbox is offered instead). -->
+<table id="off" class="tablesorter">
+  <thead><tr><th class="header sorter-false">Notes</th><th class="sorting_disabled">Tags</th><th class="no-sort">Owner</th></tr></thead>
+</table>
+<table id="rows" style="cursor:pointer">
+  <thead><tr><th>Clickable rows</th></tr></thead>
+  <tbody><tr onclick=""><th onclick="">Row A</th><td>1</td></tr><tr><th scope="row" style="cursor:pointer">Row B</th><td>2</td></tr></tbody>
+</table>
+<table id="select">
+  <thead><tr><th style="cursor:pointer"><input type="checkbox" id="all"> Select</th></tr></thead>
+</table>
 <table id="aria">
   <thead><tr><th aria-sort="none">Price</th><th><button>Sort by date</button></th></tr></thead>
 </table>
