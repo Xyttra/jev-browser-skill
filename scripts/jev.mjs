@@ -153,7 +153,7 @@ async function main() {
         console.log(`   blocked: three targets in a row were covered; on top: ${cover}`);
         return true;
       };
-      let acted = 0;
+      let acted = 0, clicked = false;
       if (e) {
         const aims = operation !== "SELECT"; // a SELECT needs no coordinates
         let point = await chrome.locate(e.node, args.headless ? "" : `Jev · ${operation} · ${Math.round(decision.p * 100)}%`, aims);
@@ -170,13 +170,9 @@ async function main() {
         acted = performance.now();
         if (operation === "SELECT") await chrome.select(e.node, option.value);
         else {
-          const landed = await chrome.click(point, undefined, e.node);
           // false: the hover put something over the whole target, so nothing was pressed
-          if (landed === false) { if (await skipped()) break; continue; }
-          trace.steps.at(-1).landed = landed;
-          if (process.env.JEV_DEBUG && landed?.on_target === false) {
-            console.error(`   warning: the click landed on ${landed.click ?? landed.mousedown ?? "nothing"}, not on the target`);
-          }
+          if (!(await chrome.click(point, undefined, e.node))) { if (await skipped()) break; continue; }
+          clicked = true;
         }
         if (operation === "TYPE") {
           await chrome.type(e.node, text);
@@ -188,6 +184,12 @@ async function main() {
 
       history.push({ operation, target: e && `${e.role} "${e.label}"`, text: shown, url: page.url, href: e?.href, fingerprint: fingerprint(page) });
       if (acted) await chrome.react(page, acted, e?.href);
+      if (clicked) { // read after the reaction, so the read never eats into its window
+        const landed = trace.steps.at(-1).landed = await chrome.landed();
+        if (process.env.JEV_DEBUG && landed?.on_target === false) {
+          console.error(`   warning: the click landed on ${landed.click ?? landed.mousedown ?? "nothing"}, not on the target`);
+        }
+      }
       await chrome.settle();
     }
     page = await chrome.observe();

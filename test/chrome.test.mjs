@@ -161,7 +161,8 @@ test("a click records where its mousedown and click landed, and whether that was
   await chrome.goto(fixture("wrapped-link.html"));
   const page = await chrome.observe();
   const link = page.elements.find(e => e.role === "link");
-  const landed = await chrome.click(await chrome.locate(link.node, ""), 0, link.node);
+  await chrome.click(await chrome.locate(link.node, ""), 0, link.node);
+  const landed = await chrome.landed();
   t.diagnostic(`landed: ${JSON.stringify(landed)}`);
   assert.deepEqual(landed, { mousedown: 'a#link "A story headline long enough that it wraps onto line two"',
     click: 'a#link "A story headline long enough that it wraps onto line two"', on_target: true });
@@ -169,7 +170,8 @@ test("a click records where its mousedown and click landed, and whether that was
   const centre = await chrome.evaluate(`(r => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 }))(document.getElementById('link').getBoundingClientRect())`);
   // A point that does not belong to the target (the old aim point, the <li>'s blank space) is
   // never pressed: the check before the press moves it onto the link.
-  const moved = await chrome.click(centre, 0, link.node);
+  await chrome.click(centre, 0, link.node);
+  const moved = await chrome.landed();
   assert.equal(moved.on_target, true);
   assert.match(moved.click, /^a#link/);
   assert.equal(await chrome.evaluate("window.__jevLanding"), null, "the listeners are gone");
@@ -196,7 +198,8 @@ test("a checkbox whose label is what a hit test finds is offered, and a click on
   const offered = await byId(await chrome.observe());
   for (const [id, label] of [["remember", "Remember me"], ["terms", "Accept terms"]]) {
     assert.equal(offered[id]?.label, label, `${id} is offered`);
-    const landed = await chrome.click(await chrome.locate(offered[id].node, ""), 0, offered[id].node);
+    await chrome.click(await chrome.locate(offered[id].node, ""), 0, offered[id].node);
+    const landed = await chrome.landed();
     await sleep(100);
     t.diagnostic(`${id} landed: ${JSON.stringify(landed)}`);
     assert.equal(await chrome.evaluate(`document.getElementById('${id}').checked`), true, `${id} is checked`);

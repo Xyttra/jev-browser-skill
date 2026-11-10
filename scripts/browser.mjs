@@ -17,6 +17,9 @@ export const HOVER_MS = 120;
 /** The longest one WAIT step watches the page for a change. */
 export const WAIT_MS = 5000;
 
+/** The longest reading where a click landed may take. It is read after the reaction, so it never eats into it. */
+export const LANDING_MS = 1000;
+
 /** The longest a screenshot may take. A page can stop painting (seen on a dialog example). */
 export const SCREENSHOT_MS = 5000;
 
@@ -197,13 +200,13 @@ class Chrome {
     });
   }
 
-  /** Evaluate in the page. Returns undefined while the document is navigating. */
-  async evaluate(expression) {
+  /** Evaluate in the page. Returns undefined while the document is navigating, or after `timeout` ms with no answer. */
+  async evaluate(expression, timeout = 5000) {
     try {
-      const response = await this.send("Runtime.evaluate", { expression, returnByValue: true }, this.session, 5000);
+      const response = await this.send("Runtime.evaluate", { expression, returnByValue: true }, this.session, timeout);
       return response.exceptionDetails ? undefined : response.result.value;
     } catch (error) {
-      if (/no reply/.test(error.message)) console.error(`   warning: the page did not answer for 5s (${error.message})`);
+      if (/no reply/.test(error.message)) console.error(`   warning: the page did not answer for ${timeout / 1000}s (${error.message})`);
       return undefined;
     }
   }
@@ -310,21 +313,17 @@ class Chrome {
    * not answer the check is not pressed either. A hover-intent menu whose click toggles it may
    * now open on the hover and close on the click; that is accepted.
    *
-   * Given the node id, it also records where the press and the click landed and returns
-   * { mousedown, click, on_target } (see core.mjs landing), or null when the page had already
-   * moved on and could not say.
+   * Given the node id, it also arms a record of where the press and the click land; landed()
+   * reads it. Returns true once pressed.
    */
   async click({ x, y }, hover = HOVER_MS, node) {
-    const recording = node != null && (await this.evaluate(`${ARM_LANDING}(${Number(node)})`));
+    if (node != null) await this.evaluate(`${ARM_LANDING}(${Number(node)})`);
     await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 });
     await sleep(hover);
     const moves = [];
     if (node != null) {
       const point = await this.evaluate(`${REAIM}(${Number(node)}, ${x}, ${y})`);
-      if (!point) {
-        if (recording) await this.evaluate(READ_LANDING); // take the listeners down again
-        return false;
-      }
+      if (!point) return false; // the next ARM_LANDING takes down the listeners
       if (point.x !== x || point.y !== y) {
         ({ x, y } = point);
         moves.push(this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 }));
@@ -337,7 +336,16 @@ class Chrome {
       this.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 }),
       this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 }),
     ]);
-    if (recording) return (await this.evaluate(READ_LANDING)) ?? null;
+    return true;
+  }
+
+  /**
+   * Where the last click with a node id landed: { mousedown, click, on_target } (see core.mjs
+   * landing), or null when the page could not say within LANDING_MS (it moved on, or a dialog
+   * holds it). A diagnostic only: call it after react(), so it costs the reaction no time.
+   */
+  async landed() {
+    return (await this.evaluate(READ_LANDING, LANDING_MS)) ?? null;
   }
 
   /** Move the pointer off the page, closing hover menus it left open. Used only when a target is covered. */

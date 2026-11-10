@@ -2,7 +2,7 @@
 // input sequence of a click on a Chrome whose DevTools connection is a recorder. No browser needed.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { suggestionsShown, Chrome, HOVER_MS, WAIT_MS, SCREENSHOT_MS } from "../scripts/browser.mjs";
+import { suggestionsShown, Chrome, HOVER_MS, WAIT_MS, SCREENSHOT_MS, LANDING_MS } from "../scripts/browser.mjs";
 
 /** A Chrome whose every DevTools command is recorded with the time it was sent. */
 const recorder = () => {
@@ -72,6 +72,19 @@ test("after the hover beat the point is checked again: pressed there, at another
     assert.equal(await chrome.click({ x: 40, y: 70 }, 0, 7), false, "nothing of the target is left under any point");
     assert.ok(!sent.some(e => e.type === "mousePressed"), `never pressed (${reaim})`);
   }
+});
+
+test("a click does not read where it landed: that waits until after the reaction, for at most 1s", async () => {
+  const { chrome } = recorder(), reads = [];
+  chrome.evaluate = async (expression, timeout) => { reads.push({ expression, timeout }); return expression.includes("elementFromPoint(x, y)") ? { x: 1, y: 1 } : true; };
+  assert.equal(await chrome.click({ x: 1, y: 1 }, 0, 7), true, "pressed");
+  assert.ok(!reads.some(r => r.expression.includes("__jevLanding = null")), "the landing is not read inside the click");
+  chrome.evaluate = async (expression, timeout) => { reads.push({ expression, timeout }); return { on_target: true }; };
+  assert.deepEqual(await chrome.landed(), { on_target: true });
+  assert.equal(reads.at(-1).timeout, LANDING_MS);
+  assert.equal(LANDING_MS, 1000);
+  chrome.evaluate = async () => undefined; // the page did not answer in time
+  assert.equal(await chrome.landed(), null);
 });
 
 test("a click leaves the pointer on the target, so a submenu it opened stays open", async () => {
