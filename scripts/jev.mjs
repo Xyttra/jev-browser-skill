@@ -163,10 +163,14 @@ export async function run({ chrome, ask, decide = decideStep, goal, texts = [], 
     await chrome.settle();
   }
   page = await chrome.observe();
+  // The final screenshot gets 20s, not a trace step's 5s. A failure is noted in the summary and
+  // the run ends as it would have: the summary and the trace are still written.
+  let screenshotError;
   if (screenshot) {
-    let png;
-    try { png = await chrome.screenshot("png"); } catch (error) { throw new Error(`could not save the --screenshot file: ${error.message}`); }
-    write(screenshot, png);
+    try { write(screenshot, await chrome.screenshot("png", 20000)); } catch (error) {
+      screenshotError = error.message;
+      console.error(`   warning: could not save the --screenshot file (${error.message})`);
+    }
   }
 
   const result = {
@@ -179,7 +183,8 @@ export async function run({ chrome, ask, decide = decideStep, goal, texts = [], 
     ...(blocked ? { blocked_reason: blocked } : {}),
     ...(coveredBy ? { covered_by: coveredBy } : {}),
     ...(unsure ? { unsure } : {}),
-    ...(screenshot ? { screenshot } : {}),
+    ...(screenshot && !screenshotError ? { screenshot } : {}),
+    ...(screenshotError ? { screenshot_error: screenshotError } : {}),
     page_text: page.text.slice(0, 2500),
   };
   if (tracePath) write(tracePath, JSON.stringify({ ...trace, result }));

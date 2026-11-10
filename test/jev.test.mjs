@@ -86,3 +86,25 @@ test("three skips in a row whose last target is gone or hidden stop the run as t
     assert.equal(result.covered_by, cover, "the summary still says what was found");
   }
 });
+
+test("the final screenshot gets 20s, and is written to the --screenshot file", async () => {
+  let args;
+  const chrome = stubChrome({ screenshot: async (...a) => { args = a; return Buffer.from("png"); } });
+  const { result, files } = await loop([decision("DONE", { goal_met: 0.9 })], { chrome, screenshot: "out.png" });
+  assert.deepEqual(args, ["png", 20000]);
+  assert.equal(String(files["out.png"]), "png");
+  assert.equal(result.screenshot, "out.png");
+  assert.equal(result.screenshot_error, undefined);
+});
+
+test("a final screenshot that fails still yields the summary and the trace, with screenshot_error", async () => {
+  const chrome = stubChrome({ screenshot: async () => { throw new Error("Page.captureScreenshot got no reply"); } });
+  const { result, trace, files, lines } = await loop([decision("DONE", { goal_met: 0.9 })], { chrome, screenshot: "out.png" });
+  assert.equal(result.status, "done", "the run's own status stands");
+  assert.match(result.screenshot_error, /Page\.captureScreenshot got no reply/);
+  assert.equal(result.screenshot, undefined, "no file was saved");
+  assert.equal(files["out.png"], undefined);
+  assert.equal(trace.steps.length, 1, "the trace is written");
+  assert.deepEqual(trace.result, result);
+  assert.match(lines.at(-1), /"screenshot_error"/, "the summary is printed");
+});

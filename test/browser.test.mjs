@@ -117,15 +117,15 @@ test("WAIT gives up after its limit when nothing changes, and a page mid-navigat
   assert.equal(WAIT_MS, 5000, "three unchanged WAITs then allow about 15s before the run stops");
 });
 
-test("a screenshot gives up after 5s, not the 20s every other command gets", async () => {
+test("a screenshot gives up after 5s unless the caller gives it longer", async () => {
   const chrome = new Chrome({ owned: true });
   let waited;
   chrome.send = async (method, params, session, timeout) => { waited = timeout; return { data: "AAAA" }; };
   assert.equal(await chrome.screenshot(), "data:image/jpeg;base64,AAAA");
   assert.equal(waited, SCREENSHOT_MS);
   assert.equal(SCREENSHOT_MS, 5000);
-  await chrome.screenshot("png");
-  assert.equal(waited, SCREENSHOT_MS, "the final --screenshot file too");
+  await chrome.screenshot("png", 20000);
+  assert.equal(waited, 20000, "the final --screenshot file gets the longer limit jev.mjs asks for");
 });
 
 test("a trace screenshot that hangs is recorded as missing and the run carries on", async () => {
