@@ -200,9 +200,10 @@ const SNAPSHOT = `(() => {
   for (const [id, e] of cache.nodes) if (!e.isConnected) cache.nodes.delete(id);
   const visible = e => !e.closest('[aria-hidden="true"],[inert]') &&
     e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
-  // A see-through checkbox or radio is judged by hit test, not opacity: offered only when a click
-  // on screen lands on it or its label.
-  const usable = e => visible(e) || (!e.closest('[aria-hidden="true"],[inert]') && seeThrough(e) && Boolean(aimPoint(e)));
+  // A see-through checkbox or radio is judged by hit test, not opacity: offered unless a click on
+  // screen would miss it and its label. Below the fold there is nothing to test yet, as for any
+  // other control: LOCATE scrolls to it and its hit test decides then.
+  const usable = e => visible(e) || (!e.closest('[aria-hidden="true"],[inert]') && seeThrough(e) && aimPoint(e) !== null);
   const clean = s => (s || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
   const labelText = label => { // a <label> may wrap its control; keep the caption only
     const copy = label.cloneNode(true);

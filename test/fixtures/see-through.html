@@ -2,7 +2,8 @@
 <title>See-through controls</title>
 <!-- Custom checkboxes built from an opacity:0 native input. "todo" is TodoMVC's toggle: the
      transparent input sits on top of its row, three rows, each toggle captioned by its own row. "news" sits under its <label>, which draws the box.
-     "decoy" is transparent and covered by something that is not its label: not usable. -->
+     "decoy" is transparent and covered by something that is not its label: not usable.
+     "below" is a see-through toggle below the fold: offered, and LOCATE scrolls to it. -->
 <style>
   body { font: 16px sans-serif; margin: 40px; }
   .view { position: relative; width: 300px; height: 40px; }
@@ -22,3 +23,5 @@
 <div class="row"><input type="checkbox" id="news"><label for="news">Newsletter</label></div>
 <p><input type="checkbox" id="bare"> Select all</p>
 <input type="radio" id="decoy" name="decoy"><div id="cover">cover</div>
+<div style="height:1400px"></div>
+<div class="view"><input class="toggle" type="checkbox" id="below"><label for="below">Agree to the terms</label></div>

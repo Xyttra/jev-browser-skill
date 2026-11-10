@@ -127,8 +127,9 @@ test("a see-through checkbox is offered when a click lands on it or its label, a
   assert.equal(offered.news?.role, "checkbox", "under its label: the label takes the click");
   assert.equal(offered.news.label, "Newsletter");
   assert.ok(!offered.decoy, "transparent and covered by something else: not offered");
+  assert.equal(offered.below?.label, "Agree to the terms", "below the fold: offered like any other control");
 
-  for (const id of ["todo", "news"]) {
+  for (const id of ["todo", "news", "below"]) {
     await chrome.click(await chrome.locate(offered[id].node, ""), 0);
     await sleep(100);
     assert.equal(await chrome.evaluate(`document.getElementById('${id}').checked`), true, `${id} is checked`);
