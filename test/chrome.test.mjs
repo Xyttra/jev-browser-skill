@@ -89,3 +89,24 @@ test("WAIT watches a slow page until it finishes, and gives up on a still one af
   t.diagnostic(`still page: WAIT ended after ${still}ms`);
   assert.ok(still >= WAIT_MS && still < WAIT_MS + 500, `${still}ms`);
 });
+
+test("a link wrapped onto two lines is aimed at its text, not the blank centre of its box", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("wrapped-link.html"));
+  const centre = await chrome.evaluate(`(() => {
+    const a = document.getElementById('link'), r = a.getBoundingClientRect();
+    return { lines: a.getClientRects().length, hit: document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.id };
+  })()`);
+  assert.equal(centre.lines, 2, "fixture check: the link wraps");
+  assert.equal(centre.hit, "story", "fixture check: the centre of its box is the <li>");
+
+  const page = await chrome.observe();
+  const link = page.elements.find(e => e.role === "link");
+  assert.ok(link, "the wrapped link is offered");
+  const point = await chrome.locate(link.node, "");
+  assert.equal(await chrome.evaluate(`document.elementFromPoint(${point.x}, ${point.y})?.id`), "link", "the aim point is on the link");
+  await chrome.click(point, 0);
+  await sleep(200);
+  assert.deepEqual(await chrome.evaluate("clicks"), ["link"], "the click fired on the <a>");
+  assert.equal(await chrome.evaluate("location.hash"), "#opened", "and followed it");
+});

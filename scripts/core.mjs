@@ -94,11 +94,31 @@ export function sortState(e) {
   return (e.getAttribute('class') || '').split(/\s+/).find(c => /sort/i.test(c) && /asc|desc|up|down/i.test(c));
 }
 
+/**
+ * Runs in the page: the point where a mouse click on `e` lands on `e`. Tries its line boxes in
+ * order (getClientRects: one per line of a wrapped link) and returns the centre of the first whose
+ * hit test is `e` or inside it. A hit on an ancestor is a miss: the centre of a link wrapped onto
+ * two lines lies in its parent's blank space. null when a box is on screen but none hits;
+ * undefined when no box centre is on screen, so there is nothing to test yet.
+ */
+export function aimPoint(e, doc = document, view = window) {
+  let tested = false;
+  for (const r of e.getClientRects()) {
+    if (!r.width || !r.height) continue;
+    const x = r.x + r.width / 2, y = r.y + r.height / 2;
+    if (x < 0 || y < 0 || x >= view.innerWidth || y >= view.innerHeight) continue;
+    tested = true;
+    const hit = doc.elementFromPoint(x, y);
+    if (hit && (hit === e || e.contains(hit))) return { x, y };
+  }
+  return tested ? null : undefined;
+}
+
 // Runs inside the page. Lists the visible, enabled controls of the whole page and keeps a
 // code-owned id → element map so later actions resolve to the exact observed node.
 const SNAPSHOT = `(() => {
   if (!document.body) return null;
-  const sortableHeader = ${sortableHeader}, sortState = ${sortState};
+  const sortableHeader = ${sortableHeader}, sortState = ${sortState}, aimPoint = ${aimPoint};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
   const identity = e => {
     if (!cache.ids.has(e)) cache.ids.set(e, cache.next++);
@@ -162,11 +182,7 @@ const SNAPSHOT = `(() => {
     if (['gridcell', 'columnheader'].includes(kind) && e.querySelector('a[href],button,[role="link"],[role="button"]')) continue;
     if (kind === 'columnheader' && !sortableHeader(e)) continue;
     if (r.bottom + scrollY <= 0 || r.right + scrollX <= 0) continue; // placed off the page, like a skip link
-    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
-    if (cx >= 0 && cy >= 0 && cx < innerWidth && cy < innerHeight) { // on screen: offer it only if a click would land on it
-      const hit = document.elementFromPoint(cx, cy);
-      if (hit && !e.contains(hit) && !hit.contains(e)) continue;
-    }
+    if (aimPoint(e) === null) continue; // on screen: offer it only if a click would land on it
     const item = { node: identity(e), role: kind, label: name(e) || kind, rect: { x: r.x, y: r.y, w: r.width, h: r.height } };
     if (e.closest('[role="search"],search')) item.search = true;
     const href = e.getAttribute('href');
@@ -203,8 +219,10 @@ const SNAPSHOT = `(() => {
     viewport: { w: innerWidth, h: innerHeight, x: scrollX, y: scrollY } };
 })()`;
 
-// Runs inside the page just before input: re-check the observed node, bring it on screen, hit-test its centre.
+// Runs inside the page just before input: re-check the observed node, bring it on screen, find
+// a point on it that a click would land on.
 const LOCATE = `((id, note, coordinates = true) => {
+  const aimPoint = ${aimPoint};
   const e = window.__jev?.nodes.get(id);
   if (!e?.isConnected || e.matches(':disabled') || !e.checkVisibility()) return null;
   e.closest('a[target]')?.removeAttribute('target'); // stay in this tab
@@ -213,14 +231,12 @@ const LOCATE = `((id, note, coordinates = true) => {
     e.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     r = e.getBoundingClientRect();
   }
-  const x = r.x + r.width / 2, y = r.y + r.height / 2;
-  if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return null;
-  // Only a real mouse click needs the centre point to belong to the element. A SELECT is
-  // executed by setting .value, so a skin painted over the native control must not block it.
-  if (coordinates) {
-    const hit = document.elementFromPoint(x, y);
-    if (hit && !e.contains(hit) && !hit.contains(e)) return null;
-  }
+  const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+  if (!r.width || !r.height || cx < 0 || cy < 0 || cx >= innerWidth || cy >= innerHeight) return null;
+  // Only a real mouse click needs a point that belongs to the element. A SELECT is executed by
+  // setting .value, so a skin painted over the native control must not block it.
+  const point = coordinates ? aimPoint(e) : { x: cx, y: cy };
+  if (!point) return null;
   if (note) {
     const box = document.createElement('div');
     box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #ff4f00;' +
@@ -234,7 +250,7 @@ const LOCATE = `((id, note, coordinates = true) => {
     box.append(tag); document.documentElement.append(box);
     setTimeout(() => box.remove(), 900);
   }
-  return { x, y };
+  return point;
 })`;
 
 export { SNAPSHOT, LOCATE };

@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -282,4 +282,24 @@ test("a blocked verdict says why: Jev answered BLOCKED, or the stuck check reach
   assert.equal(blocked({ operation: "BLOCKED", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.9 } }), "jev_blocked", "Jev's own answer comes first");
   assert.equal(blocked({ operation: "CLICK", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.9 } }), "stuck_check");
   assert.equal(blocked({ operation: "WAIT", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.86 } }), "stuck_check");
+});
+
+// aimPoint on fakes: an element with line boxes, and a document whose hit test is scripted by point.
+const node = (rects, kids = []) => { const e = { getClientRects: () => rects, contains: n => n === e || kids.includes(n) }; return e; };
+const box = (x, y, w, h) => ({ x, y, width: w, height: h });
+const screen = { innerWidth: 800, innerHeight: 600 };
+const hitting = map => ({ elementFromPoint: (x, y) => map[`${x},${y}`] ?? null });
+
+test("aimPoint: a wrapped link is aimed at the first line whose centre hits it or its content", () => {
+  const text = {}, parent = {}, e = node([box(0, 0, 200, 20), box(0, 20, 60, 20)], [text]);
+  assert.deepEqual(aimPoint(e, hitting({ "100,10": text }), screen), { x: 100, y: 10 }, "line 1 hits a descendant");
+  assert.deepEqual(aimPoint(e, hitting({ "100,10": parent, "30,30": e }), screen), { x: 30, y: 30 }, "line 1 covered, line 2 hits");
+});
+
+test("aimPoint: a hit on an ancestor is a miss, and nothing on screen is not tested", () => {
+  const parent = {}, e = node([box(0, 0, 200, 20)]);
+  parent.contains = n => n === e;
+  assert.equal(aimPoint(e, hitting({ "100,10": parent }), screen), null, "the old ancestor allowance is gone");
+  assert.equal(aimPoint(node([box(0, 900, 200, 20)]), hitting({}), screen), undefined, "below the fold");
+  assert.equal(aimPoint(node([box(0, 0, 0, 0)]), hitting({}), screen), undefined, "an empty box");
 });

@@ -1,0 +1,15 @@
+<!doctype html>
+<title>Wrapped link</title>
+<!-- Like text.npr.org: a story link inside an <li> that wraps onto two lines. The centre of its
+     combined box falls in the leading between the lines and right of the short second line,
+     which belongs to the <li>, not the <a>. -->
+<style>
+  ul { width: 260px; margin: 40px; padding: 0; list-style: none; font: 16px/2.5 sans-serif; }
+</style>
+<ul>
+  <li id="story"><a id="link" href="#opened">A story headline long enough that it wraps onto line two</a></li>
+</ul>
+<script>
+  window.clicks = [];
+  document.addEventListener('click', e => clicks.push(e.target.id || e.target.tagName));
+</script>
