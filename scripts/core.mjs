@@ -305,6 +305,40 @@ const LOCATE = `((id, note, coordinates = true) => {
   return point;
 })`;
 
+/**
+ * Runs in the page: where a click landed, from the targets of its mousedown and click events
+ * (either may be missing). on_target: the click's target, or the mousedown's when no click
+ * fired, is the clicked element or inside it.
+ */
+export function landing({ target, mousedown, click }) {
+  const hit = click || mousedown;
+  return { mousedown: describeNode(mousedown), click: describeNode(click),
+    on_target: Boolean(hit && target && (hit === target || target.contains(hit))) };
+}
+
+// Runs inside the page just before a click: one-shot capturing listeners on document record
+// the target of the next mousedown and click. Listeners left from a click that never fired go.
+const ARM_LANDING = `((id) => {
+  const old = window.__jevLanding;
+  if (old) for (const [type, fn] of Object.entries(old.listeners)) document.removeEventListener(type, fn, true);
+  const record = window.__jevLanding = { target: window.__jev?.nodes.get(id), listeners: {} };
+  for (const type of ['mousedown', 'click']) {
+    record.listeners[type] = event => { record[type] = event.target; };
+    document.addEventListener(type, record.listeners[type], { capture: true, once: true });
+  }
+  return true;
+})`;
+
+// Runs inside the page just after the click: read back what ARM_LANDING recorded.
+const READ_LANDING = `(() => {
+  const describeNode = ${describeNode}, landing = ${landing};
+  const record = window.__jevLanding;
+  if (!record) return null;
+  for (const [type, fn] of Object.entries(record.listeners)) document.removeEventListener(type, fn, true);
+  window.__jevLanding = null;
+  return landing(record);
+})()`;
+
 // Runs inside the page after LOCATE gave up on a target: what is on top at its aim point (the
 // centre of its first line box), or why there is no such point. A hit inside a dialog is
 // described as the dialog, since that is what the caller has to dismiss.
@@ -320,7 +354,7 @@ const COVER = `((id) => {
   return describeNode(hit?.closest('dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]') || hit) || 'nothing';
 })`;
 
-export { SNAPSHOT, LOCATE, COVER };
+export { SNAPSHOT, LOCATE, COVER, ARM_LANDING, READ_LANDING };
 
 /** What a page looks like for change detection: the same fingerprint means nothing happened. */
 export const fingerprint = page => JSON.stringify([page.url, page.text, page.elements.map(e => [e.node, e.value, e.checked, e.expanded, e.sort])]);

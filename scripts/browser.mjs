@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SNAPSHOT, LOCATE, COVER, fingerprint } from "./core.mjs";
+import { SNAPSHOT, LOCATE, COVER, ARM_LANDING, READ_LANDING, fingerprint } from "./core.mjs";
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -302,8 +302,13 @@ class Chrome {
    * Hover, then click. The pointer moves onto the point first and rests a beat, so a menu that
    * opens on hover opens as a person's would. It stays there afterwards: moving it away would
    * close the submenu the next observe should see.
+   *
+   * Given the target's node id, it also records where the press and the click landed and returns
+   * { mousedown, click, on_target } (see core.mjs landing), or null when the page had already
+   * moved on and could not say. A diagnostic only: it changes nothing about the click.
    */
-  async click({ x, y }, hover = HOVER_MS) {
+  async click({ x, y }, hover = HOVER_MS, node) {
+    const recording = node != null && (await this.evaluate(`${ARM_LANDING}(${Number(node)})`));
     await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 });
     await sleep(hover);
     // Press and release must not straddle a round trip. A page that reflows in between
@@ -312,6 +317,7 @@ class Chrome {
       this.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 }),
       this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 }),
     ]);
+    if (recording) return (await this.evaluate(READ_LANDING)) ?? null;
   }
 
   /** Move the pointer off the page, closing hover menus it left open. Used only when a target is covered. */

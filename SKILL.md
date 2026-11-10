@@ -39,6 +39,9 @@ from https://typesafe.ai — and do not try to work around it.
   for `--screenshot` that ends the run with an error; for `--trace` the step gets
   `screenshot: null` and a `screenshot_error`, a warning is printed, and the run carries on.
 - `--trace run.json` saves every step (element table, request, answers, decision, screenshot).
+  A step that clicked also has `landed: { mousedown, click, on_target }`: what the press and
+  the click actually hit, and whether that was the chosen element (null if the page had already
+  moved on). With `JEV_DEBUG=1` a click that missed its target prints a warning.
 - `--browser`: `auto` (default) uses the user's own browser when it allows remote debugging,
   else a dedicated Jev window that is reused across runs. `yours` and `own` force either.
 

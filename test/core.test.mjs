@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, seeThrough, ownText, coveredRun, describeNode, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, seeThrough, ownText, coveredRun, describeNode, landing, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -360,4 +360,14 @@ test("describeNode: role or tag, id, and its label or text, kept short", () => {
   assert.equal(describeNode(el("IFRAME", { id: "sp", src: "https://consent.example/x" })), 'iframe#sp "https://consent.example/x"');
   assert.equal(describeNode(el("P", {}, "  We   use cookies " + "x".repeat(80))).length, 'p ""'.length + 60);
   assert.equal(describeNode(null), null);
+});
+
+test("landing: on target when the click, or the press if no click fired, is the element or inside it", () => {
+  const tag = name => ({ tagName: name, id: "", innerText: name, getAttribute: () => null });
+  const inner = tag("SPAN"), outside = tag("LI"), target = { ...tag("A"), contains: n => n === inner };
+  assert.deepEqual(landing({ target, mousedown: inner, click: inner }), { mousedown: 'span "SPAN"', click: 'span "SPAN"', on_target: true });
+  assert.equal(landing({ target, mousedown: target, click: target }).on_target, true);
+  assert.equal(landing({ target, mousedown: outside, click: outside }).on_target, false);
+  assert.deepEqual(landing({ target, mousedown: inner }), { mousedown: 'span "SPAN"', click: null, on_target: true }, "no click fired");
+  assert.equal(landing({ target }).on_target, false, "nothing landed");
 });

@@ -168,7 +168,12 @@ async function main() {
         }
         acted = performance.now();
         if (operation === "SELECT") await chrome.select(e.node, option.value);
-        else await chrome.click(point);
+        else {
+          const landed = trace.steps.at(-1).landed = await chrome.click(point, undefined, e.node);
+          if (process.env.JEV_DEBUG && landed?.on_target === false) {
+            console.error(`   warning: the click landed on ${landed.click ?? landed.mousedown ?? "nothing"}, not on the target`);
+          }
+        }
         if (operation === "TYPE") {
           await chrome.type(e.node, text);
           await chrome.awaitSuggestions(e.node); // so the next observe sees the suggestion list

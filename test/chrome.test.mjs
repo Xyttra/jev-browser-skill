@@ -146,3 +146,20 @@ test("a target under a consent pop-up is not aimed at, and the pop-up is named a
   await chrome.evaluate("document.getElementById('tech').style.cssText = 'position:fixed;top:-100px'");
   assert.equal(await chrome.coveredBy(node), "off screen");
 });
+
+test("a click records where its mousedown and click landed, and whether that was the target", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("wrapped-link.html"));
+  const page = await chrome.observe();
+  const link = page.elements.find(e => e.role === "link");
+  const landed = await chrome.click(await chrome.locate(link.node, ""), 0, link.node);
+  t.diagnostic(`landed: ${JSON.stringify(landed)}`);
+  assert.deepEqual(landed, { mousedown: 'a#link "A story headline long enough that it wraps onto line two"',
+    click: 'a#link "A story headline long enough that it wraps onto line two"', on_target: true });
+
+  const centre = await chrome.evaluate(`(r => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 }))(document.getElementById('link').getBoundingClientRect())`);
+  const missed = await chrome.click(centre, 0, link.node); // the old aim point: the <li>'s blank space
+  assert.equal(missed.on_target, false);
+  assert.match(missed.click, /^li#story/);
+  assert.equal(await chrome.evaluate("window.__jevLanding"), null, "the listeners are gone");
+});
