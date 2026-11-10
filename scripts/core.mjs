@@ -350,12 +350,14 @@ const LOCATE = `((id, note, coordinates = true) => {
 /**
  * Runs in the page: where a click landed, from the targets of its mousedown and click events
  * (either may be missing). on_target: the click's target, or the mousedown's when no click
- * fired, is the clicked element or inside it.
+ * fired, is the clicked element, inside it, or inside one of its <label>s (a click there is
+ * passed on to the control as a second click, which the one-shot listener does not record).
  */
 export function landing({ target, mousedown, click }) {
   const hit = click || mousedown;
+  const within = n => n === hit || n.contains(hit);
   return { mousedown: describeNode(mousedown), click: describeNode(click),
-    on_target: Boolean(hit && target && (hit === target || target.contains(hit))) };
+    on_target: Boolean(hit && target && (within(target) || [...(target.labels || [])].some(within))) };
 }
 
 // Runs inside the page just before a click: one-shot capturing listeners on document record

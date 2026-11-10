@@ -193,5 +193,6 @@ test("a checkbox whose label is what a hit test finds is offered, and a click on
     await sleep(100);
     t.diagnostic(`${id} landed: ${JSON.stringify(landed)}`);
     assert.equal(await chrome.evaluate(`document.getElementById('${id}').checked`), true, `${id} is checked`);
+    assert.equal(landed.on_target, true, "a click through the control's label is on target");
   }
 });

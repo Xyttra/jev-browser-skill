@@ -389,7 +389,7 @@ test("describeNode: role or tag, id, and its label or text, kept short", () => {
   assert.equal(describeNode(null), null);
 });
 
-test("landing: on target when the click, or the press if no click fired, is the element or inside it", () => {
+test("landing: on target when the click, or the press if no click fired, is the element, inside it or inside its label", () => {
   const tag = name => ({ tagName: name, id: "", innerText: name, getAttribute: () => null });
   const inner = tag("SPAN"), outside = tag("LI"), target = { ...tag("A"), contains: n => n === inner };
   assert.deepEqual(landing({ target, mousedown: inner, click: inner }), { mousedown: 'span "SPAN"', click: 'span "SPAN"', on_target: true });
@@ -397,4 +397,9 @@ test("landing: on target when the click, or the press if no click fired, is the 
   assert.equal(landing({ target, mousedown: outside, click: outside }).on_target, false);
   assert.deepEqual(landing({ target, mousedown: inner }), { mousedown: 'span "SPAN"', click: null, on_target: true }, "no click fired");
   assert.equal(landing({ target }).on_target, false, "nothing landed");
+  const caption = tag("SPAN"), label = { ...tag("LABEL"), contains: n => n === caption };
+  const box = { ...tag("INPUT"), contains: () => false, labels: [label] };
+  assert.equal(landing({ target: box, mousedown: label, click: label }).on_target, true, "through its label");
+  assert.equal(landing({ target: box, mousedown: caption, click: caption }).on_target, true, "inside its label");
+  assert.equal(landing({ target: box, mousedown: outside, click: outside }).on_target, false);
 });
