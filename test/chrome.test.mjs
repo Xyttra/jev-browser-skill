@@ -60,14 +60,14 @@ test("sortable table headers are offered as click targets, and a sort shows in t
   assert.equal(find(page, "Price").sort, "none", "aria-sort is the state");
   assert.equal(find(page, "Sort by date")?.role, "button", "the inner control is offered instead");
   assert.equal(find(page, "Last Name").op, "CLICK");
-  assert.equal(find(page, "Last Name").sort, undefined, "not sorted yet");
+  assert.equal(find(page, "Last Name").sort, "unsorted", "not sorted yet");
 
   const acted = performance.now();
   await chrome.click(await chrome.locate(find(page, "Last Name").node, ""));
   await chrome.react(page, acted);
   const after = await chrome.observe();
   t.diagnostic(`after one click: Last Name sort=${find(after, "Last Name").sort}, react+observe ${Math.round(performance.now() - acted)}ms`);
-  assert.equal(find(after, "Last Name").sort, "headerSortDown");
+  assert.equal(find(after, "Last Name").sort, "sorted", "tablesorter 2.0 marks this ascending sort headerSortDown: the direction is left to the rows");
   assert.match(after.text, /Bach[\s\S]*Conway[\s\S]*Doe[\s\S]*Smith/, "the rows are sorted");
 });
 

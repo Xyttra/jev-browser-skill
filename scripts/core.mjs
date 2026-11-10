@@ -98,15 +98,21 @@ export function sortableHeader(e, style = getComputedStyle) {
 }
 
 /**
- * The sort state a header shows: its aria-sort, else the sort class a library added after a
- * sort (tablesorter's headerSortUp/headerSortDown, tablesorter-headerAsc/Desc), as written.
- * Undefined when it shows none. Class names are not translated: tablesorter 2.0 marks an
- * ascending sort headerSortDown.
+ * The sort state a header shows. Its aria-sort as written (ascending, descending, none, other);
+ * else, from the classes a sort library leaves, only "sorted" (a sort class naming a direction:
+ * headerSortDown, tablesorter-headerAsc, sorting_desc) or "unsorted" (a sort class with no
+ * direction, like DataTables' sorting, or tablesorter 2.0's plain "header" in a sort table).
+ * Class names are not translated into a direction: they are version-specific, and tablesorter
+ * 2.0 marks an ascending sort headerSortDown. Jev reads the direction from the row order.
+ * Undefined when it shows none.
  */
 export function sortState(e) {
   const aria = e.getAttribute('aria-sort');
   if (aria) return aria;
-  return (e.getAttribute('class') || '').split(/\s+/).find(c => /sort/i.test(c) && /asc|desc|up|down/i.test(c));
+  const classes = (e.getAttribute('class') || '').split(/\s+/).filter(Boolean);
+  const sorty = classes.filter(c => /sort/i.test(c));
+  if (sorty.some(c => /asc|desc|up|down/i.test(c))) return 'sorted';
+  if (sorty.length || (classes.includes('header') && /sort/i.test(e.closest('table')?.getAttribute('class') || ''))) return 'unsorted';
 }
 
 /** What counts as a control when deciding whose caption a piece of text is. */

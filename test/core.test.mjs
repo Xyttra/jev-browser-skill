@@ -256,23 +256,32 @@ test("a header row of a table with a sort class is sortable, as jQuery tablesort
   assert.equal(sortableHeader(th({ thead: false, table: sorter }), style), false, "a row header in the body is not");
 });
 
-test("a header's sort state is its aria-sort, else the sort class as written", () => {
+test("a header's sort state is its aria-sort as written, else a neutral sorted or unsorted", () => {
   assert.equal(sortState(th({ attrs: { "aria-sort": "ascending", class: "headerSortUp" } })), "ascending");
-  assert.equal(sortState(th({ attrs: { class: "header headerSortDown" } })), "headerSortDown");
-  assert.equal(sortState(th({ attrs: { class: "tablesorter-header tablesorter-headerAsc" } })), "tablesorter-headerAsc");
-  assert.equal(sortState(th({ attrs: { class: "header sortable" } })), undefined, "sortable is not a state");
+  for (const value of ["descending", "none", "other"]) assert.equal(sortState(th({ attrs: { "aria-sort": value } })), value);
+  // Library class names are version-specific: tablesorter 2.0 marks an ascending sort
+  // headerSortDown. So a class says only that the column is sorted; Jev reads the row order.
+  assert.equal(sortState(th({ attrs: { class: "header headerSortDown" } })), "sorted");
+  assert.equal(sortState(th({ attrs: { class: "header headerSortUp" } })), "sorted");
+  assert.equal(sortState(th({ attrs: { class: "tablesorter-header tablesorter-headerAsc" } })), "sorted");
+  assert.equal(sortState(th({ attrs: { class: "sorting_desc" } })), "sorted", "DataTables");
+  assert.equal(sortState(th({ attrs: { class: "header sortable" } })), "unsorted", "a sort class with no direction");
+  assert.equal(sortState(th({ attrs: { class: "sorting" } })), "unsorted", "DataTables, unsorted");
+  assert.equal(sortState(th({ attrs: { class: "header" }, table: { class: "tablesorter" } })), "unsorted", "tablesorter 2.0, unsorted");
+  assert.equal(sortState(th({ attrs: { class: "header" } })), undefined, "a plain class outside a sort table says nothing");
+  assert.equal(sortState(th()), undefined);
 });
 
 test("a column header is a click target, and Jev sees its sort state", () => {
   const page = { url: "https://example.com/t", title: "T", text: "", elements: [
-    { node: 1, role: "columnheader", label: "Last Name", sort: "headerSortDown", op: "CLICK" },
+    { node: 1, role: "columnheader", label: "Last Name", sort: "sorted", op: "CLICK" },
     { node: 2, role: "columnheader", label: "First Name", op: "CLICK" },
   ] };
   const { body, targets } = buildRequest({ ...base, page });
   assert.deepEqual(Object.keys(targets.CLICK), ["1", "2"]);
-  assert.equal(body.questions.click_target.criteria["1"].sort, "headerSortDown");
-  assert.equal(body.state.elements[0].sort, "headerSortDown");
-  const sorted = { ...page, elements: page.elements.map(e => ({ ...e, sort: e.node === 2 ? "headerSortDown" : undefined })) };
+  assert.equal(body.questions.click_target.criteria["1"].sort, "sorted");
+  assert.equal(body.state.elements[0].sort, "sorted");
+  const sorted = { ...page, elements: page.elements.map(e => ({ ...e, sort: e.node === 2 ? "sorted" : undefined })) };
   assert.notEqual(fingerprint(sorted), fingerprint(page), "a sort that moves only the state still counts as a change");
 });
 
