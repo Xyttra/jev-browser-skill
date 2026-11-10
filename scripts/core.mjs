@@ -63,10 +63,35 @@ export function verdict(decision, t = THRESHOLDS) {
   return decision.operation_p >= t.act ? null : "unsure";
 }
 
+/**
+ * Runs in the page on a table header cell (th or [role=columnheader]): whether clicking it looks
+ * like it sorts the table. The click handler itself is invisible to page script, so this reads
+ * its traces: aria-sort, a sort class on the cell or (for a header row) on its table, as jQuery
+ * tablesorter leaves on the table before the first sort, an onclick, or a pointer cursor.
+ */
+export function sortableHeader(e, style = getComputedStyle) {
+  const sorty = n => /sort/i.test(n?.getAttribute('class') || '');
+  return e.hasAttribute('aria-sort') || sorty(e) || e.hasAttribute('onclick') || typeof e.onclick === 'function' ||
+    style(e).cursor === 'pointer' || (Boolean(e.closest('thead')) && sorty(e.closest('table')));
+}
+
+/**
+ * The sort state a header shows: its aria-sort, else the sort class a library added after a
+ * sort (tablesorter's headerSortUp/headerSortDown, tablesorter-headerAsc/Desc), as written.
+ * Undefined when it shows none. Class names are not translated: tablesorter 2.0 marks an
+ * ascending sort headerSortDown.
+ */
+export function sortState(e) {
+  const aria = e.getAttribute('aria-sort');
+  if (aria) return aria;
+  return (e.getAttribute('class') || '').split(/\s+/).find(c => /sort/i.test(c) && /asc|desc|up|down/i.test(c));
+}
+
 // Runs inside the page. Lists the visible, enabled controls of the whole page and keeps a
 // code-owned id → element map so later actions resolve to the exact observed node.
 const SNAPSHOT = `(() => {
   if (!document.body) return null;
+  const sortableHeader = ${sortableHeader}, sortState = ${sortState};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
   const identity = e => {
     if (!cache.ids.has(e)) cache.ids.set(e, cache.next++);
@@ -99,10 +124,11 @@ const SNAPSHOT = `(() => {
     clean(e.getAttribute('title')) || clean(e.getAttribute('placeholder')) || nearby(e) ||
     clean(e.getAttribute('name')) || clean(e.querySelector?.('img[alt]')?.alt);
   const roles = ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemradio',
-    'menuitemcheckbox', 'option', 'gridcell', 'combobox', 'textbox', 'searchbox', 'spinbutton'];
+    'menuitemcheckbox', 'option', 'gridcell', 'columnheader', 'combobox', 'textbox', 'searchbox', 'spinbutton'];
   const role = e => {
     const explicit = e.getAttribute('role');
     if (roles.includes(explicit)) return explicit;
+    if (e.tagName === 'TH' && !explicit) return 'columnheader';
     if (e.tagName === 'BUTTON' || e.tagName === 'SUMMARY') return 'button';
     if (e.tagName === 'A') return 'link';
     if (e.tagName === 'SELECT') return 'dropdown';
@@ -115,7 +141,7 @@ const SNAPSHOT = `(() => {
     }
     return null;
   };
-  const selector = 'a[href],button,input,textarea,select,summary,[contenteditable="true"],' +
+  const selector = 'a[href],button,input,textarea,select,summary,th,[contenteditable="true"],' +
     roles.map(r => '[role="' + r + '"]').join(',');
   const elements = []; let omitted = 0;
   for (const e of document.querySelectorAll(selector)) {
@@ -124,8 +150,10 @@ const SNAPSHOT = `(() => {
     if (!visible(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
     const r = e.getBoundingClientRect(), kind = role(e);
     if (!kind || !r.width || !r.height) continue;
-    // A grid cell holding its own link or button (a date picker day) is offered through that control.
-    if (kind === 'gridcell' && e.querySelector('a[href],button,[role="link"],[role="button"]')) continue;
+    // A grid cell or header holding its own link or button (a date picker day, a sort button) is
+    // offered through that control. A header that does not look sortable is only a caption.
+    if (['gridcell', 'columnheader'].includes(kind) && e.querySelector('a[href],button,[role="link"],[role="button"]')) continue;
+    if (kind === 'columnheader' && !sortableHeader(e)) continue;
     if (r.bottom + scrollY <= 0 || r.right + scrollX <= 0) continue; // placed off the page, like a skip link
     const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
     if (cx >= 0 && cy >= 0 && cx < innerWidth && cy < innerHeight) { // on screen: offer it only if a click would land on it
@@ -141,6 +169,7 @@ const SNAPSHOT = `(() => {
       const value = e.getAttribute('aria-' + key);
       if (value !== null) item[key] = value;
     }
+    if (kind === 'columnheader' && sortState(e)) item.sort = sortState(e);
     if (e.tagName === 'SELECT') {
       item.op = 'SELECT';
       item.value = clean([...e.selectedOptions].map(o => o.label).join(', '));
@@ -204,7 +233,7 @@ const LOCATE = `((id, note, coordinates = true) => {
 export { SNAPSHOT, LOCATE };
 
 /** What a page looks like for change detection: the same fingerprint means nothing happened. */
-export const fingerprint = page => JSON.stringify([page.url, page.text, page.elements.map(e => [e.node, e.value, e.checked, e.expanded])]);
+export const fingerprint = page => JSON.stringify([page.url, page.text, page.elements.map(e => [e.node, e.value, e.checked, e.expanded, e.sort])]);
 
 /** Reject anything outside the offered set. Nothing executes on an invalid answer. */
 export function pick(answer, offered) {
@@ -215,7 +244,7 @@ export function pick(answer, offered) {
 export const describe = e => ({
   element: `[${e.index}] ${e.role} "${e.label}"`,
   ...(e.value !== undefined ? { current_value: e.value } : {}),
-  ...Object.fromEntries(["checked", "selected", "expanded"].filter(k => k in e).map(k => [k, e[k]])),
+  ...Object.fromEntries(["checked", "selected", "expanded", "sort"].filter(k => k in e).map(k => [k, e[k]])),
 });
 
 

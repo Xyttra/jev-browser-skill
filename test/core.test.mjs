@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, fingerprint, sortableHeader, sortState, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -229,4 +229,49 @@ test("a menu radio or checkbox item is a click target that reports its checked s
 test("the rules tell Jev to check a filter's own state, not just the results", () => {
   const { body } = buildRequest({ ...base, page: loginPage() });
   assert.match(body.questions.operation.instructions.rules, /do not prove a filter, sort or option was applied/);
+});
+
+// A fake header cell: attributes, an optional onclick, the nearest thead/table, and its cursor.
+const th = ({ attrs = {}, onclick = null, thead = true, table = {}, cursor = "auto" } = {}) => {
+  const el = attrs => ({ getAttribute: n => attrs[n] ?? null });
+  return {
+    getAttribute: n => attrs[n] ?? null, hasAttribute: n => n in attrs, onclick, cursor,
+    closest: s => (s === "thead" ? (thead ? {} : null) : s === "table" ? el(table) : null),
+  };
+};
+const style = e => ({ cursor: e.cursor });
+
+test("a header looks sortable from aria-sort, a sort class, an onclick or a pointer cursor", () => {
+  assert.equal(sortableHeader(th(), style), false, "a plain caption is not offered");
+  assert.ok(sortableHeader(th({ attrs: { "aria-sort": "none" } }), style));
+  assert.ok(sortableHeader(th({ attrs: { class: "sortable" } }), style));
+  assert.ok(sortableHeader(th({ attrs: { onclick: "sort(0)" } }), style));
+  assert.ok(sortableHeader(th({ onclick: () => {} }), style));
+  assert.ok(sortableHeader(th({ cursor: "pointer" }), style));
+});
+
+test("a header row of a table with a sort class is sortable, as jQuery tablesorter marks it", () => {
+  const sorter = { class: "tablesorter" };
+  assert.ok(sortableHeader(th({ attrs: { class: "header" }, table: sorter }), style), "tablesorter's unsorted header");
+  assert.equal(sortableHeader(th({ thead: false, table: sorter }), style), false, "a row header in the body is not");
+});
+
+test("a header's sort state is its aria-sort, else the sort class as written", () => {
+  assert.equal(sortState(th({ attrs: { "aria-sort": "ascending", class: "headerSortUp" } })), "ascending");
+  assert.equal(sortState(th({ attrs: { class: "header headerSortDown" } })), "headerSortDown");
+  assert.equal(sortState(th({ attrs: { class: "tablesorter-header tablesorter-headerAsc" } })), "tablesorter-headerAsc");
+  assert.equal(sortState(th({ attrs: { class: "header sortable" } })), undefined, "sortable is not a state");
+});
+
+test("a column header is a click target, and Jev sees its sort state", () => {
+  const page = { url: "https://example.com/t", title: "T", text: "", elements: [
+    { node: 1, role: "columnheader", label: "Last Name", sort: "headerSortDown", op: "CLICK" },
+    { node: 2, role: "columnheader", label: "First Name", op: "CLICK" },
+  ] };
+  const { body, targets } = buildRequest({ ...base, page });
+  assert.deepEqual(Object.keys(targets.CLICK), ["1", "2"]);
+  assert.equal(body.questions.click_target.criteria["1"].sort, "headerSortDown");
+  assert.equal(body.state.elements[0].sort, "headerSortDown");
+  const sorted = { ...page, elements: page.elements.map(e => ({ ...e, sort: e.node === 2 ? "headerSortDown" : undefined })) };
+  assert.notEqual(fingerprint(sorted), fingerprint(page), "a sort that moves only the state still counts as a change");
 });

@@ -1,0 +1,35 @@
+<!doctype html>
+<title>Sortable table</title>
+<!-- Like the-internet /tables with jQuery tablesorter 2.0: the table has class "tablesorter",
+     each header gets class "header" and an invisible click handler, and a sort adds
+     headerSortDown (ascending, as tablesorter 2.0 names it) or headerSortUp. -->
+<table id="sorted" class="tablesorter">
+  <thead><tr><th><span>Last Name</span></th><th><span>First Name</span></th></tr></thead>
+  <tbody>
+    <tr><td>Smith</td><td>John</td></tr>
+    <tr><td>Bach</td><td>Frank</td></tr>
+    <tr><td>Doe</td><td>Jason</td></tr>
+    <tr><td>Conway</td><td>Tim</td></tr>
+  </tbody>
+</table>
+<table id="plain">
+  <thead><tr><th>Caption only</th></tr></thead>
+  <tbody><tr><th>Row header</th></tr></tbody>
+</table>
+<table id="aria">
+  <thead><tr><th aria-sort="none">Price</th><th><button>Sort by date</button></th></tr></thead>
+</table>
+<script>
+  const table = document.getElementById('sorted'), body = table.tBodies[0];
+  table.querySelectorAll('th').forEach((th, column) => {
+    th.classList.add('header');
+    let ascending = false;
+    th.addEventListener('click', () => {
+      ascending = !ascending;
+      table.querySelectorAll('th').forEach(h => h.classList.remove('headerSortDown', 'headerSortUp'));
+      th.classList.add(ascending ? 'headerSortDown' : 'headerSortUp');
+      const rows = [...body.rows].sort((a, b) => a.cells[column].textContent.localeCompare(b.cells[column].textContent));
+      (ascending ? rows : rows.reverse()).forEach(row => body.append(row));
+    });
+  });
+</script>

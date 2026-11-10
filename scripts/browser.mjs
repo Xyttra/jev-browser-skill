@@ -212,7 +212,7 @@ class Chrome {
   async react(before, since, href) {
     const done = why => process.env.JEV_DEBUG && console.error(`   react: ${why} after ${Math.round(performance.now() - since)}ms`);
     const bare = url => url?.split("#")[0];
-    const controls = page => JSON.stringify([page.url, page.elements.map(e => [e.node, e.value, e.checked, e.expanded])]);
+    const controls = page => JSON.stringify([page.url, page.elements.map(e => [e.node, e.value, e.checked, e.expanded, e.sort])]);
     const expected = href && bare(href) !== bare(before.url) ? bare(before.url) : null;
     while (performance.now() < since + (expected ? 5000 : 8000)) {
       const navigating = this.navigationStarted > since && !(this.navigationEnded > this.navigationStarted);

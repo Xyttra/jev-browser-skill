@@ -47,3 +47,24 @@ test("a click opens a hover-only submenu, and it stays open for the next observe
   t.diagnostic(`submenu offered after hover-click: ${labels(after).includes("Downloads")}, ${Math.round(performance.now() - acted)}ms after the click`);
   assert.ok(labels(after).includes("Downloads") && labels(after).includes("Back to JQuery UI"), labels(after).join(", "));
 });
+
+test("sortable table headers are offered as click targets, and a sort shows in their state", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("sortable-table.html"));
+  const page = await chrome.observe();
+  const headers = page.elements.filter(e => e.role === "columnheader");
+  t.diagnostic(`headers offered: ${headers.map(e => `${e.label}${e.sort ? ` (${e.sort})` : ""}`).join(", ")}`);
+  assert.deepEqual(headers.map(e => e.label), ["Last Name", "First Name", "Price"], "captions and a header holding a button are not offered");
+  assert.equal(find(page, "Price").sort, "none", "aria-sort is the state");
+  assert.equal(find(page, "Sort by date")?.role, "button", "the inner control is offered instead");
+  assert.equal(find(page, "Last Name").op, "CLICK");
+  assert.equal(find(page, "Last Name").sort, undefined, "not sorted yet");
+
+  const acted = performance.now();
+  await chrome.click(await chrome.locate(find(page, "Last Name").node, ""));
+  await chrome.react(page, acted);
+  const after = await chrome.observe();
+  t.diagnostic(`after one click: Last Name sort=${find(after, "Last Name").sort}, react+observe ${Math.round(performance.now() - acted)}ms`);
+  assert.equal(find(after, "Last Name").sort, "headerSortDown");
+  assert.match(after.text, /Bach[\s\S]*Conway[\s\S]*Doe[\s\S]*Smith/, "the rows are sorted");
+});
