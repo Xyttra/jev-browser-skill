@@ -2,19 +2,20 @@
 <title>Hover menu</title>
 <!-- A hover-intent menu, like the jQuery UI menu on the-internet: the submenu opens 300ms after
      the pointer moves over its item and closes when the pointer leaves. A click on the item does
-     nothing by itself, and a press with no move before it sends no mousemove. -->
+     nothing by itself, and a press with no move before it sends no mousemove. As in jQuery UI,
+     the item holds its submenu, so its own text must not take in the submenu's. -->
 <style>
   ul { list-style: none; margin: 0; padding: 0; }
   #menu { width: 150px; margin: 40px; }
   #menu > li { position: relative; }
-  #menu a { display: block; padding: 6px 10px; }
+  #menu a, #enabled { display: block; padding: 6px 10px; }
   .sub { display: none; position: absolute; left: 100%; top: 0; width: 150px; background: #eee; }
   .sub.open { display: block; }
 </style>
 <ul id="menu">
   <li><a href="#">Disabled</a></li>
-  <li id="enabled"><a href="#">Enabled</a>
-    <ul class="sub"><li><a href="#">Downloads</a></li><li><a href="#">Back to JQuery UI</a></li></ul>
+  <li id="enabled" role="menuitem" aria-haspopup="true">Enabled
+    <ul class="sub" role="menu"><li><a href="#">Downloads</a></li><li><a href="#">Back to JQuery UI</a></li></ul>
   </li>
 </ul>
 <script>

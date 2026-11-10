@@ -94,6 +94,25 @@ export function sortState(e) {
   return (e.getAttribute('class') || '').split(/\s+/).find(c => /sort/i.test(c) && /asc|desc|up|down/i.test(c));
 }
 
+/** Lists nested inside a control that are its submenu, not its caption. */
+export const SUBMENUS = '[role="menu"],[role="menubar"],[role="listbox"],ul,ol';
+
+/**
+ * Runs in the page: the visible text of `e` without any submenu nested in it. A jQuery UI menu
+ * item holds its submenu, so once that opens innerText reads "Enabled Downloads Back to JQuery
+ * UI". With no nested submenu this is innerText, unchanged.
+ */
+export function ownText(e, doc = document) {
+  if (!e.querySelector(SUBMENUS)) return e.innerText;
+  const parts = [], walker = doc.createTreeWalker(e, 4); // 4: NodeFilter.SHOW_TEXT
+  for (let n; (n = walker.nextNode());) {
+    const parent = n.parentElement, sub = parent?.closest(SUBMENUS);
+    if (!parent || (sub && sub !== e && e.contains(sub))) continue;
+    if (parent.checkVisibility({ checkVisibilityCSS: true })) parts.push(n.textContent);
+  }
+  return parts.join(' ');
+}
+
 /**
  * Runs in the page: whether `e` is a native checkbox or radio that is rendered but fully
  * transparent, the usual way a custom checkbox is built (TodoMVC's toggle). Only a hit test can
@@ -133,6 +152,7 @@ export function aimPoint(e, doc = document, view = window) {
 const SNAPSHOT = `(() => {
   if (!document.body) return null;
   const sortableHeader = ${sortableHeader}, sortState = ${sortState}, seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
+  const SUBMENUS = ${JSON.stringify(SUBMENUS)}, ownText = ${ownText};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
   const identity = e => {
     if (!cache.ids.has(e)) cache.ids.set(e, cache.next++);
@@ -164,7 +184,7 @@ const SNAPSHOT = `(() => {
     clean([...(e.labels || [])].map(labelText).join(' ')) ||
     (['button', 'submit', 'reset'].includes(e.type) ? clean(e.value) : '') ||
     clean(e.getAttribute('alt')) ||
-    (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName) ? '' : clean(e.innerText)) ||
+    (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName) ? '' : clean(ownText(e))) ||
     clean(e.getAttribute('title')) || clean(e.getAttribute('placeholder')) || nearby(e) ||
     clean(e.getAttribute('name')) || clean(e.querySelector?.('img[alt]')?.alt);
   const roles = ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemradio',

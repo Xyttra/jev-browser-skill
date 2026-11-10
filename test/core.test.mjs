@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, seeThrough, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, aimPoint, seeThrough, ownText, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -323,4 +323,24 @@ test("aimPoint: a see-through checkbox counts as hit through its own label, noth
   assert.equal(aimPoint(checkbox({ labels: [label] }), hitting({ "10,10": other }), screen), null, "covered by something else");
   assert.equal(aimPoint(checkbox({ opacity: 1, labels: [label] }), hitting({ "10,10": caption }), screen), null,
     "a visible checkbox is judged as before");
+});
+
+// ownText on fakes: a menu item holding a text node and a submenu with its own text.
+const menuItem = ({ open = true } = {}) => {
+  const item = { innerText: "Enabled Downloads" }, sub = { kind: "sub" };
+  item.contains = n => n === sub;
+  item.querySelector = selector => (selector.includes("ul") ? sub : null);
+  const within = (box, visible = true) => ({ closest: () => box, checkVisibility: () => visible });
+  const texts = [{ textContent: "Enabled", parentElement: within(null) }, { textContent: "Downloads", parentElement: within(sub, open) }];
+  return { item, doc: { createTreeWalker: (root, what) => (assert.equal(what, 4), { nextNode: () => texts.shift() ?? null }) } };
+};
+
+test("ownText: a menu item's label leaves out the submenu nested in it", () => {
+  const { item, doc } = menuItem();
+  assert.equal(ownText(item, doc), "Enabled");
+});
+
+test("ownText: with no nested submenu it is innerText, unchanged", () => {
+  const plain = { innerText: "Sign in", querySelector: () => null };
+  assert.equal(ownText(plain, {}), "Sign in");
 });

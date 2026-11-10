@@ -46,6 +46,8 @@ test("a click opens a hover-only submenu, and it stays open for the next observe
   const after = await chrome.observe();
   t.diagnostic(`submenu offered after hover-click: ${labels(after).includes("Downloads")}, ${Math.round(performance.now() - acted)}ms after the click`);
   assert.ok(labels(after).includes("Downloads") && labels(after).includes("Back to JQuery UI"), labels(after).join(", "));
+  const parent = after.elements.find(e => e.node === find(page, "Enabled").node);
+  assert.equal(parent?.label, "Enabled", "the open submenu's text is not part of its parent's label");
 });
 
 test("sortable table headers are offered as click targets, and a sort shows in their state", async t => {
