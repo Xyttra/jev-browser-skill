@@ -326,10 +326,11 @@ test("aimPoint: a see-through checkbox counts as hit through its own label, noth
 });
 
 // ownText on fakes: a menu item holding a text node and a submenu with its own text.
-const menuItem = ({ open = true } = {}) => {
-  const item = { innerText: "Enabled Downloads" }, sub = { kind: "sub" };
+const attributes = attrs => ({ getAttribute: n => attrs[n] ?? null, hasAttribute: n => n in attrs });
+const menuItem = ({ open = true, attrs = { role: "menuitem" } } = {}) => {
+  const item = { innerText: "Enabled Downloads", ...attributes(attrs) }, sub = { kind: "sub" };
   item.contains = n => n === sub;
-  item.querySelector = selector => (selector.includes("ul") ? sub : null);
+  item.querySelector = selector => (selector.split(",").includes("ul") ? sub : null); // the submenu is a plain <ul>
   const within = (box, visible = true) => ({ closest: () => box, checkVisibility: () => visible });
   const texts = [{ textContent: "Enabled", parentElement: within(null) }, { textContent: "Downloads", parentElement: within(sub, open) }];
   return { item, doc: { createTreeWalker: (root, what) => (assert.equal(what, 4), { nextNode: () => texts.shift() ?? null }) } };
@@ -340,8 +341,17 @@ test("ownText: a menu item's label leaves out the submenu nested in it", () => {
   assert.equal(ownText(item, doc), "Enabled");
 });
 
+test("ownText: a plain list counts as a submenu only for a control with a popup", () => {
+  for (const attrs of [{ "aria-haspopup": "true" }, { "aria-expanded": "false" }]) {
+    const { item, doc } = menuItem({ attrs });
+    assert.equal(ownText(item, doc), "Enabled", JSON.stringify(attrs));
+  }
+  const { item, doc } = menuItem({ attrs: {} });
+  assert.equal(ownText(item, doc), "Enabled Downloads", "a link holding a list is named by the list");
+});
+
 test("ownText: with no nested submenu it is innerText, unchanged", () => {
-  const plain = { innerText: "Sign in", querySelector: () => null };
+  const plain = { innerText: "Sign in", querySelector: () => null, ...attributes({}) };
   assert.equal(ownText(plain, {}), "Sign in");
 });
 

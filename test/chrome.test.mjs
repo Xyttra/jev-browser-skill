@@ -166,3 +166,18 @@ test("a click records where its mousedown and click landed, and whether that was
   assert.match(missed.click, /^li#story/);
   assert.equal(await chrome.evaluate("window.__jevLanding"), null, "the listeners are gone");
 });
+
+/** The page's elements keyed by their DOM id. */
+const byId = async page => {
+  const ids = await chrome.evaluate(`${JSON.stringify(page.elements.map(e => e.node))}.map(n => window.__jev.nodes.get(n).id)`);
+  return Object.fromEntries(page.elements.map((e, i) => [ids[i], e]));
+};
+
+test("a link whose text is all inside a list is named by that text, and a popup's list is left out", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("labels.html"));
+  const offered = await byId(await chrome.observe());
+  assert.equal(offered.plana?.label, "Plan A");
+  assert.equal(offered.planb?.label, "Plan B", "not the link before it");
+  assert.equal(offered.popup?.label, "Products", "a control with a popup keeps its submenu out of its name");
+});

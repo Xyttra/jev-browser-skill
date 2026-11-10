@@ -1,0 +1,13 @@
+<!doctype html>
+<title>Labels</title>
+<!-- Controls whose name or hit test is easy to get wrong.
+     "plana"/"planb": links whose only text is inside a list, like some plan pickers.
+     "popup": a menu item with a plain <ul> submenu: the submenu is not part of its name. -->
+<style>
+  body { font: 16px sans-serif; margin: 20px; }
+  .card { display: inline-block; width: 160px; vertical-align: top; }
+  .sub { display: block; }
+</style>
+<div><a class="card" id="plana" href="#a"><ul><li>Plan A</li></ul></a><a class="card" id="planb" href="#b"><ul><li>Plan B</li></ul></a></div>
+<ul><li><a id="popup" href="#p" aria-haspopup="true">Products<ul class="sub"><li>Shoes</li><li>Hats</li></ul></a></li></ul>
+<script>document.addEventListener('click', e => { if (e.target.closest('a')) e.preventDefault(); });</script>

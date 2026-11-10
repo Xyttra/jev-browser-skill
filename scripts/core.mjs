@@ -109,9 +109,6 @@ export function sortState(e) {
   return (e.getAttribute('class') || '').split(/\s+/).find(c => /sort/i.test(c) && /asc|desc|up|down/i.test(c));
 }
 
-/** Lists nested inside a control that are its submenu, not its caption. */
-export const SUBMENUS = '[role="menu"],[role="menubar"],[role="listbox"],ul,ol';
-
 /** What counts as a control when deciding whose caption a piece of text is. */
 export const CONTROLS = 'a[href],button,input,select,textarea,summary,[contenteditable="true"],' +
   ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemradio', 'menuitemcheckbox',
@@ -120,16 +117,26 @@ export const CONTROLS = 'a[href],button,input,select,textarea,summary,[contented
 /** Repeated items: the text of one never captions a control in another. */
 export const ITEMS = 'li,tr,[role="row"],[role="listitem"]';
 
+/** Menus nested inside a control: always its submenu, never its caption. */
+export const SUBMENUS = '[role="menu"],[role="menubar"],[role="listbox"]';
+
+/** Plain lists nested inside a control: its submenu only when the control has a popup. */
+export const LISTS = 'ul,ol';
+
 /**
  * Runs in the page: the visible text of `e` without any submenu nested in it. A jQuery UI menu
  * item holds its submenu, so once that opens innerText reads "Enabled Downloads Back to JQuery
- * UI". With no nested submenu this is innerText, unchanged.
+ * UI". A plain ul/ol counts as a submenu only for a control with a popup (role=menuitem,
+ * aria-haspopup or aria-expanded): a plan card's link may hold all its text in a list. With no
+ * nested submenu this is innerText, unchanged.
  */
 export function ownText(e, doc = document) {
-  if (!e.querySelector(SUBMENUS)) return e.innerText;
+  const popup = e.getAttribute('role') === 'menuitem' || e.hasAttribute('aria-haspopup') || e.hasAttribute('aria-expanded');
+  const menus = popup ? SUBMENUS + ',' + LISTS : SUBMENUS;
+  if (!e.querySelector(menus)) return e.innerText;
   const parts = [], walker = doc.createTreeWalker(e, 4); // 4: NodeFilter.SHOW_TEXT
   for (let n; (n = walker.nextNode());) {
-    const parent = n.parentElement, sub = parent?.closest(SUBMENUS);
+    const parent = n.parentElement, sub = parent?.closest(menus);
     if (!parent || (sub && sub !== e && e.contains(sub))) continue;
     if (parent.checkVisibility({ checkVisibilityCSS: true })) parts.push(n.textContent);
   }
@@ -175,7 +182,7 @@ export function aimPoint(e, doc = document, view = window) {
 const SNAPSHOT = `(() => {
   if (!document.body) return null;
   const sortableHeader = ${sortableHeader}, sortState = ${sortState}, seeThrough = ${seeThrough}, aimPoint = ${aimPoint};
-  const SUBMENUS = ${JSON.stringify(SUBMENUS)}, ownText = ${ownText};
+  const SUBMENUS = ${JSON.stringify(SUBMENUS)}, LISTS = ${JSON.stringify(LISTS)}, ownText = ${ownText};
   const CONTROLS = ${JSON.stringify(CONTROLS)}, ITEMS = ${JSON.stringify(ITEMS)};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
   const identity = e => {
@@ -225,7 +232,7 @@ const SNAPSHOT = `(() => {
     clean([...(e.labels || [])].map(labelText).join(' ')) ||
     (['button', 'submit', 'reset'].includes(e.type) ? clean(e.value) : '') ||
     clean(e.getAttribute('alt')) ||
-    (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName) ? '' : clean(ownText(e))) ||
+    (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName) ? '' : clean(ownText(e)) || clean(e.innerText)) ||
     clean(e.getAttribute('title')) || clean(e.getAttribute('placeholder')) || nearby(e) ||
     clean(e.getAttribute('name')) || clean(e.querySelector?.('img[alt]')?.alt);
   const roles = ['button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemradio',
