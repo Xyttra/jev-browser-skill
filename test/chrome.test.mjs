@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Chrome, sleep } from "../scripts/browser.mjs";
+import { Chrome, sleep, WAIT_MS } from "../scripts/browser.mjs";
 
 const fixture = name => pathToFileURL(join(import.meta.dirname, "fixtures", name)).href;
 const profile = mkdtempSync(join(tmpdir(), "jev-test-"));
@@ -67,4 +67,25 @@ test("sortable table headers are offered as click targets, and a sort shows in t
   t.diagnostic(`after one click: Last Name sort=${find(after, "Last Name").sort}, react+observe ${Math.round(performance.now() - acted)}ms`);
   assert.equal(find(after, "Last Name").sort, "headerSortDown");
   assert.match(after.text, /Bach[\s\S]*Conway[\s\S]*Doe[\s\S]*Smith/, "the rows are sorted");
+});
+
+test("WAIT watches a slow page until it finishes, and gives up on a still one after 5s", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("slow-load.html"));
+  let page = await chrome.observe();
+  const acted = performance.now();
+  await chrome.click(await chrome.locate(find(page, "Start").node, ""));
+  await chrome.react(page, acted);
+  page = await chrome.observe();
+  assert.match(page.text, /Loading/);
+  const loading = performance.now() - acted;
+  const waited = await chrome.waitForChange(page);
+  const after = await chrome.observe();
+  t.diagnostic(`slow page: WAIT ended after ${waited}ms (result due ${Math.round(4000 - loading)}ms after the WAIT began)`);
+  assert.match(after.text, /Hello World!/);
+  assert.ok(waited < WAIT_MS, `ended on the change, not the cap (${waited}ms)`);
+
+  const still = await chrome.waitForChange(after);
+  t.diagnostic(`still page: WAIT ended after ${still}ms`);
+  assert.ok(still >= WAIT_MS && still < WAIT_MS + 500, `${still}ms`);
 });

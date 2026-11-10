@@ -14,6 +14,9 @@ export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 /** How long the pointer rests on a target before pressing, so hover handlers can run. */
 export const HOVER_MS = 120;
 
+/** The longest one WAIT step watches the page for a change. */
+export const WAIT_MS = 5000;
+
 /**
  * Runs in the page on a field just typed into. null when the field gives no autocomplete hint;
  * otherwise whether a suggestion is visible yet: a [role=option] inside the list its
@@ -266,6 +269,21 @@ class Chrome {
     }
     if (previous) return done(previous, "still changing");
     throw new Error("Page did not become readable");
+  }
+
+  /**
+   * WAIT: look again until the page differs from `before` (by fingerprint) or `limit` ms pass,
+   * reading it every `every` ms. Returns how long it waited. With the 3-unchanged-steps stop in
+   * jev.mjs this gives a slow page about 15s.
+   */
+  async waitForChange(before, { limit = WAIT_MS, every = 200 } = {}) {
+    const started = performance.now(), was = fingerprint(before);
+    while (performance.now() - started < limit) {
+      await sleep(Math.min(every, Math.max(0, limit - (performance.now() - started))));
+      const page = await this.evaluate(SNAPSHOT); // undefined while a new document loads: keep looking
+      if (page && fingerprint(page) !== was) break;
+    }
+    return Math.round(performance.now() - started);
   }
 
   async locate(node, note, coordinates = true) {

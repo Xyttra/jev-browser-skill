@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, fingerprint, sortableHeader, sortState, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, sortState, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -274,4 +274,12 @@ test("a column header is a click target, and Jev sees its sort state", () => {
   assert.equal(body.state.elements[0].sort, "headerSortDown");
   const sorted = { ...page, elements: page.elements.map(e => ({ ...e, sort: e.node === 2 ? "headerSortDown" : undefined })) };
   assert.notEqual(fingerprint(sorted), fingerprint(page), "a sort that moves only the state still counts as a change");
+});
+
+test("a blocked verdict says why: Jev answered BLOCKED, or the stuck check reached the stop bar", () => {
+  const blocked = d => verdict(d) === "blocked" && blockReason(d);
+  assert.equal(blocked({ operation: "BLOCKED", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.2 } }), "jev_blocked");
+  assert.equal(blocked({ operation: "BLOCKED", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.9 } }), "jev_blocked", "Jev's own answer comes first");
+  assert.equal(blocked({ operation: "CLICK", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.9 } }), "stuck_check");
+  assert.equal(blocked({ operation: "WAIT", operation_p: 0.9, checks: { goal_met: 0.1, stuck: 0.86 } }), "stuck_check");
 });

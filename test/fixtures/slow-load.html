@@ -1,0 +1,16 @@
+<!doctype html>
+<title>Slow load</title>
+<!-- Like the-internet /dynamic_loading/2: Start shows a loading bar, and the result is added
+     4 seconds later. Nothing on the page changes in between. -->
+<div id="start"><button>Start</button></div>
+<div id="loading" hidden>Loading...</div>
+<script>
+  document.querySelector('#start button').addEventListener('click', () => {
+    document.getElementById('start').hidden = true;
+    document.getElementById('loading').hidden = false;
+    setTimeout(() => {
+      document.getElementById('loading').hidden = true;
+      document.body.insertAdjacentHTML('beforeend', '<h4 id="finish">Hello World!</h4>');
+    }, 4000);
+  });
+</script>

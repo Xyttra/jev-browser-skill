@@ -2,7 +2,7 @@
 // input sequence of a click on a Chrome whose DevTools connection is a recorder. No browser needed.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { suggestionsShown, Chrome, HOVER_MS } from "../scripts/browser.mjs";
+import { suggestionsShown, Chrome, HOVER_MS, WAIT_MS } from "../scripts/browser.mjs";
 
 /** A Chrome whose every DevTools command is recorded with the time it was sent. */
 const recorder = () => {
@@ -54,4 +54,28 @@ test("a click leaves the pointer on the target, so a submenu it opened stays ope
   const { chrome, sent } = recorder();
   await chrome.click({ x: 5, y: 5 }, 0);
   assert.ok(!sent.some(e => e.type === "mouseMoved" && e.x < 0), "no park after the click");
+});
+
+/** A Chrome whose page reads come from `reads` in turn (the last repeats), counting each read. */
+const scripted = reads => {
+  const chrome = new Chrome({ owned: true });
+  chrome.reads = 0;
+  chrome.evaluate = async () => reads[Math.min(chrome.reads++, reads.length - 1)];
+  return chrome;
+};
+const shown = text => ({ url: "https://example.com/", text, elements: [] });
+
+test("WAIT ends as soon as the page changes", async () => {
+  const chrome = scripted([shown("Loading..."), shown("Loading..."), shown("Hello World!")]);
+  const waited = await chrome.waitForChange(shown("Loading..."), { every: 10 });
+  assert.equal(chrome.reads, 3, "stopped at the first changed read");
+  assert.ok(waited < 200, `${waited}ms`);
+});
+
+test("WAIT gives up after its limit when nothing changes, and a page mid-navigation is not a change", async () => {
+  const chrome = scripted([undefined, shown("Loading...")]);
+  const waited = await chrome.waitForChange(shown("Loading..."), { limit: 120, every: 20 });
+  assert.ok(waited >= 120 && waited < 250, `${waited}ms`);
+  assert.ok(chrome.reads >= 4, "kept polling");
+  assert.equal(WAIT_MS, 5000, "three unchanged WAITs then allow about 15s before the run stops");
 });

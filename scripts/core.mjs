@@ -64,6 +64,13 @@ export function verdict(decision, t = THRESHOLDS) {
 }
 
 /**
+ * Why a decision that verdict() called "blocked" stopped the run: Jev answered BLOCKED
+ * ("jev_blocked"), or the stuck check reached the stop bar ("stuck_check"). The loop's own
+ * stop, three steps that changed nothing, is "no_progress".
+ */
+export const blockReason = decision => (decision.operation === "BLOCKED" ? "jev_blocked" : "stuck_check");
+
+/**
  * Runs in the page on a table header cell (th or [role=columnheader]): whether clicking it looks
  * like it sorts the table. The click handler itself is invisible to page script, so this reads
  * its traces: aria-sort, a sort class on the cell or (for a header row) on its table, as jQuery
