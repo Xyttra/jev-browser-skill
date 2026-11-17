@@ -84,10 +84,12 @@ a consent or sign-in pop-up; with `target_gone` it says the target is gone or hi
 (the page changed under Jev, e.g. a list that re-rendered), so there is no pop-up to dismiss. A WAIT step watches the page until it
 changes, up to 5 seconds, so a slow page gets about 15 seconds before `no_progress`. After every
 action (and the first page load), the loop also waits for the page requests that action started
-(documents, scripts, fetch and XHR) to finish, checking every half second, for up to 10 seconds. It
-counts the page as loaded when a check finds nothing loading and nothing sent or finished since the
-check before, so a step that loaded anything costs up to half a second more; the trace records it per
-step as `load: { waited_ms, pending }`. An action
+(documents, scripts, fetch and XHR) to finish, checking at once and then every half second, for up
+to 10 seconds; a page with nothing loading costs no wait. The trace records it per step as
+`load: { waited_ms, pending }`. Before stopping as `unsure`, `blocked` or `no_progress`, the loop
+checks whether the page is still loading: it waits until half a second passes with nothing loading
+(up to 10 seconds for all the rechecks of one step), and if the page has changed, Jev looks again
+instead of stopping. The trace records it as `recheck: { waited_ms, page_changed }`. An action
 runs only when Jev's choice of operation is ≥ 0.6 sure; otherwise the run stops with `unsure` before acting, and
 the summary's `unsure` field shows what Jev proposed, its top operations and targets, and the
 checks. Nothing was done on that step.

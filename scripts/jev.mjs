@@ -13,7 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { blockReason, coveredRun, decide as decideStep, fingerprint, skipReason, verdict } from "./core.mjs";
-import { Chrome, sleep } from "./browser.mjs";
+import { Chrome, LOAD_MS, sleep } from "./browser.mjs";
 
 const API = "https://api.typesafe.ai/v1/systemone";
 const SKILL_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -65,15 +65,41 @@ export async function run({ chrome, ask, decide = decideStep, goal, texts = [], 
   const started = performance.now();
   const elapsed = () => Math.round(performance.now() - started);
 
+  // Before giving up, look once more if the page may still be loading: wait (with the quiet
+  // window, see LOAD_CHECK_MS) for what the last action started, then read the page again. The
+  // LOAD_MS budget is shared by every recheck until the next executed step, and counts the time
+  // spent reading too, so a page that changes forever cannot keep the run going.
+  let lastStart = performance.now(), recheckLeft = LOAD_MS;
+  const recheck = async before => {
+    const t0 = performance.now();
+    let waited_ms = 0, now = before;
+    if (recheckLeft > 0) {
+      ({ waited_ms } = await chrome.awaitLoad(lastStart, { quiet: true, limit: recheckLeft }));
+      now = await chrome.observe();
+    }
+    recheckLeft -= Math.max(waited_ms, performance.now() - t0);
+    const page_changed = fingerprint(now) !== fingerprint(before);
+    log(`   recheck: ${page_changed ? "still loading" : "nothing new"}, waited ${(waited_ms / 1000).toFixed(1)}s, `
+      + (page_changed ? "page changed; asking Jev again" : "page unchanged"));
+    return { recheck: { waited_ms, page_changed }, page: now };
+  };
+
   await chrome.goto(url);
   while (history.length < maxSteps) {
     page = await chrome.observe();
     if (history.length) history.at(-1).page_changed ??= history.at(-1).fingerprint !== fingerprint(page);
     const stuck = history.filter(h => !h.missed).slice(-3); // a skipped click is not the page ignoring us
     if (stuck.length === 3 && stuck.every(h => h.page_changed === false)) {
-      status = "blocked"; blocked = "no_progress";
-      log("   blocked: the last three steps changed nothing on the page");
-      break;
+      const again = await recheck(page);
+      trace.steps.at(-1).recheck = again.recheck; // on the third step that changed nothing
+      if (again.recheck.page_changed) {
+        history.at(-1).page_changed = true;
+        page = again.page;
+      } else {
+        status = "blocked"; blocked = "no_progress";
+        log("   blocked: the last three steps changed nothing on the page");
+        break;
+      }
     }
     if (page.omitted) console.error(`   warning: ${page.omitted} controls beyond the first 250 were not offered to Jev (255-choice limit per question)`);
 
@@ -95,6 +121,11 @@ export async function run({ chrome, ask, decide = decideStep, goal, texts = [], 
       decision: { operation, target: e && `[${e.index}] ${e.role} "${e.label}"`, option: option?.label, text: shown, p: decision.p, operation_p: decision.operation_p, checks: decision.checks, probabilities: decision.probabilities, ms: decision.ms },
     });
     const stop = verdict(decision);
+    if (stop === "unsure" || stop === "blocked") {
+      const again = await recheck(page);
+      trace.steps.at(-1).recheck = again.recheck;
+      if (again.recheck.page_changed) { trace.steps.at(-1).executed = false; continue; } // Jev decides again on the new page
+    }
     if (stop === "unsure") { // too unsure to act alone: stop and hand the choice to the caller
       log(`   unsure: ${checks}; nothing was done on this step`);
       unsure = {
@@ -151,6 +182,8 @@ export async function run({ chrome, ask, decide = decideStep, goal, texts = [], 
     } else if (operation === "ENTER") { acted = performance.now(); await chrome.enter(); }
     else trace.steps.at(-1).waited_ms = await chrome.waitForChange(page); // WAIT: until the page changes, up to 5s
     trace.steps.at(-1).executed = true;
+    if (acted) lastStart = acted;
+    recheckLeft = LOAD_MS; // a new step: its rechecks get the whole budget again
 
     history.push({ operation, target: e && `${e.role} "${e.label}"`, text: shown, url: page.url, href: e?.href, fingerprint: fingerprint(page) });
     if (acted) await chrome.react(page, acted, e?.href);

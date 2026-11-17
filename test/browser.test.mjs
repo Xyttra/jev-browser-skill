@@ -210,16 +210,30 @@ test("a script the page is still downloading holds the wait: on a cold start the
   assert.ok(load.waited_ms >= 150, `waited for the script (${load.waited_ms}ms)`);
 });
 
-test("a short pause between waves of requests does not end the wait: a check must find a whole interval quiet", async () => {
-  const { chrome, start, finish } = network();
-  const since = performance.now();
+/** A page that loads in two waves: its program, a pause, then the results the program asks for. */
+const twoWaves = ({ start, finish }) => {
   start("bundle", "Script");
   setTimeout(() => finish("bundle"), 40); // the page's program arrives...
-  setTimeout(() => start("results"), 70); // ...and only then asks for the results
+  setTimeout(() => start("results"), 120); // ...and only then asks for the results
   setTimeout(() => finish("results"), 200);
-  const load = await chrome.awaitLoad(since, { limit: 2000, every: 50 });
+};
+
+test("after a normal step the wait ends at the first check with nothing loading, even right after a wave", async () => {
+  const net = network();
+  const since = performance.now();
+  twoWaves(net);
+  const load = await net.chrome.awaitLoad(since, { limit: 2000, every: 50 });
   assert.equal(load.pending, 0);
-  assert.ok(load.waited_ms >= 250 && load.waited_ms < 400, `one quiet interval after the last finish (${load.waited_ms}ms)`);
+  assert.ok(load.waited_ms >= 40 && load.waited_ms < 120, `ended in the pause between the waves (${load.waited_ms}ms)`);
+});
+
+test("with quiet (the recheck before giving up) a pause between waves does not end the wait: a check must find a whole interval quiet", async () => {
+  const net = network();
+  const since = performance.now();
+  twoWaves(net);
+  const load = await net.chrome.awaitLoad(since, { limit: 2000, every: 100, quiet: true });
+  assert.equal(load.pending, 0);
+  assert.ok(load.waited_ms >= 300 && load.waited_ms < 450, `one quiet interval after the last finish (${load.waited_ms}ms)`);
 });
 
 test("a page gets up to 10s to load, checked every half second", () => {

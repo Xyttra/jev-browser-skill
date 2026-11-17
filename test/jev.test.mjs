@@ -125,3 +125,109 @@ test("a WAIT step, which acts on nothing, has no load wait of its own", async ()
   await loop([decision("WAIT"), decision("DONE", { goal_met: 0.95 })], { chrome });
   assert.equal(calls.length, 0);
 });
+
+/**
+ * A browser whose page changes only when the loop rechecks before giving up: each quiet
+ * awaitLoad moves to the next of `pages` (the last one stays). Records every awaitLoad call.
+ */
+const loadingChrome = (pages, { waited_ms = 1500 } = {}) => {
+  const loads = [];
+  let at = 0;
+  const chrome = stubChrome({
+    observe: async () => pages[at],
+    awaitLoad: async (since, options = {}) => {
+      loads.push({ since, ...options });
+      if (!options.quiet) return { waited_ms: 0, pending: 0 };
+      at = Math.min(at + 1, pages.length - 1);
+      return { waited_ms, pending: 0 };
+    },
+  });
+  return { chrome, loads, rechecks: () => loads.filter(l => l.quiet) };
+};
+const later = (text, extra = {}) => ({ ...page, text, ...extra });
+/** decide() by page text: `answers[text]` is the decision on that page. */
+const byPage = answers => async (ask, { page: seen }) => answers[seen.text];
+
+test("an unsure step on a page still loading looks again, and Jev decides on the new page", async () => {
+  const { chrome, rechecks } = loadingChrome([page, later("Results")]);
+  const decide = byPage({ "A shop": click({ operation_p: 0.4 }), Results: decision("DONE", { goal_met: 0.95 }) });
+  const { result, trace, lines } = await loop([], { chrome, decide });
+  assert.equal(result.status, "done");
+  assert.equal(result.steps, 0, "the unsure step pushed no history");
+  assert.equal(rechecks().length, 1);
+  assert.equal(rechecks()[0].limit, 10000);
+  assert.deepEqual(trace.steps[0].recheck, { waited_ms: 1500, page_changed: true });
+  assert.equal(trace.steps[0].executed, false);
+  assert.equal(trace.steps.length, 2, "the new page is a new trace step");
+  assert.ok(lines.some(l => /recheck: still loading, waited 1\.5s, page changed; asking Jev again/.test(l)));
+});
+
+test("an unsure step whose page does not change on the recheck stops as before, after one recheck", async () => {
+  const { chrome, rechecks } = loadingChrome([page]);
+  const { result, trace } = await loop([click({ operation_p: 0.4 })], { chrome });
+  assert.equal(result.status, "unsure");
+  assert.equal(rechecks().length, 1);
+  assert.deepEqual(trace.steps[0].recheck, { waited_ms: 1500, page_changed: false });
+});
+
+test("a blocked answer is rechecked like an unsure one", async () => {
+  const { chrome, rechecks } = loadingChrome([page, later("Results")]);
+  const decide = byPage({ "A shop": decision("BLOCKED"), Results: decision("DONE", { goal_met: 0.95 }) });
+  const { result, trace } = await loop([], { chrome, decide });
+  assert.equal(result.status, "done");
+  assert.equal(rechecks().length, 1);
+  assert.equal(trace.steps[0].blocked_reason, undefined);
+});
+
+test("the 10s recheck budget is shared by the rechecks of one step and starts again after an action", async () => {
+  const pages = ["A", "B", "C", "D"].map(t => later(t));
+  const { chrome, rechecks } = loadingChrome(pages, { waited_ms: 4000 });
+  const unsure = click({ operation_p: 0.4 });
+  const acted = [];
+  const decide = async (ask, { page: seen }) => {
+    if (seen.text !== "D" || acted.length) return unsure;
+    acted.push(performance.now());
+    return click();
+  };
+  const { result, trace } = await loop([], { chrome, decide });
+  assert.deepEqual(rechecks().map(l => l.limit), [10000, 6000, 2000, 10000]);
+  assert.ok(rechecks().every(l => l.quiet === true));
+  const [first, , , afterClick] = rechecks();
+  assert.ok(afterClick.since > first.since, "after the click it waits for what the click started");
+  assert.equal(result.status, "unsure");
+  assert.deepEqual(trace.steps.at(-1).recheck, { waited_ms: 4000, page_changed: false });
+});
+
+test("with the budget spent the loop stops without waiting again", async () => {
+  const pages = ["A", "B", "C", "D"].map(t => later(t));
+  const { chrome, rechecks } = loadingChrome(pages, { waited_ms: 6000 });
+  const { result, trace } = await loop([click({ operation_p: 0.4 })], { chrome });
+  assert.deepEqual(rechecks().map(l => l.limit), [10000, 4000], "a third recheck has nothing left");
+  assert.equal(result.status, "unsure");
+  assert.deepEqual(trace.steps.at(-1).recheck, { waited_ms: 0, page_changed: false });
+});
+
+test("the no_progress stop is rechecked too: a page that changed carries on", async () => {
+  const { chrome, rechecks } = loadingChrome([page, later("Results")]);
+  const decide = byPage({ "A shop": click(), Results: decision("DONE", { goal_met: 0.95 }) });
+  const { result, trace } = await loop([], { chrome, decide });
+  assert.equal(result.status, "done");
+  assert.equal(result.steps, 3);
+  assert.equal(rechecks().length, 1);
+  assert.deepEqual(trace.steps[2].recheck, { waited_ms: 1500, page_changed: true });
+});
+
+test("the no_progress stop with an unchanged page still stops, after one recheck", async () => {
+  const { chrome, rechecks } = loadingChrome([page]);
+  const { result, trace } = await loop([click()], { chrome });
+  assert.equal(result.blocked_reason, "no_progress");
+  assert.equal(rechecks().length, 1);
+  assert.deepEqual(trace.steps[2].recheck, { waited_ms: 1500, page_changed: false });
+});
+
+test("the wait after an action does not ask for quiet time", async () => {
+  const { chrome, loads } = loadingChrome([page]);
+  await loop([click(), decision("DONE", { goal_met: 0.95 })], { chrome });
+  assert.equal(loads.length, 1);
+  assert.equal(loads[0].quiet, undefined);
+});

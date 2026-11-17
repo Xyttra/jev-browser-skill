@@ -20,14 +20,20 @@ export const WAIT_MS = 5000;
 /**
  * After an action, the longest the loop waits for the requests it started to finish, and how
  * often it checks. A search that swaps in an empty shell and fills it from a slow request looks
- * settled to observe() while its results are still in transit (seen on TMview). The page counts
- * as loaded when a check finds nothing loading and nothing sent or finished since the check
- * before: a page loads in waves (its program, then the data the program asks for) with short
- * pauses between them, and a check can land in a pause. So a step that loaded anything costs up
- * to one extra interval; a page that keeps sending requests is waited on for the whole limit.
+ * settled to observe() while its results are still in transit (seen on TMview). After a normal
+ * step the page counts as loaded as soon as a check finds nothing loading, so a step that loaded
+ * nothing waits for nothing.
+ *
+ * A page loads in waves (its program, then the data the program asks for) with short pauses
+ * between them: measured up to 0.19s for page content and 0.35s for a typing-suggestions list.
+ * A check can land in such a pause. After a normal step that only costs a step (Jev sees a
+ * half-loaded page and waits or acts again), so no quiet time is added there. Before the loop
+ * gives up (unsure, blocked, or no progress), a check landing in a pause would cost the run, so
+ * that recheck also needs a whole check interval with nothing sent or finished (quiet: true).
+ * The LOAD_MS of that recheck are shared by all the rechecks of one step.
  */
 export const LOAD_MS = 10000;
-export const LOAD_CHECK_MS = 500; // measured pauses between loading waves: up to 0.35s (a typing-suggestions list)
+export const LOAD_CHECK_MS = 500; // longer than the longest pause measured between loading waves (0.35s)
 
 /**
  * The request types that carry page content. Scripts count: on a cold start a page's own program
@@ -296,16 +302,17 @@ class Chrome {
 
   /**
    * Wait until the content requests sent since `since` (the action, or the navigation) have
-   * finished and the page has been quiet for a whole check interval, checking at once and then
-   * every `every` ms, for at most `limit` ms. Requests sent before `since`, such as a long poll
-   * the page keeps open, are not waited for. Returns how long it waited and how many of those
-   * requests were still out when it stopped.
+   * finished, checking at once and then every `every` ms, for at most `limit` ms. With `quiet`
+   * (only the recheck before the loop gives up) the page must also have sent or finished no
+   * request for a whole `every` ms, so a pause between loading waves does not end the wait; see
+   * LOAD_CHECK_MS. Requests sent before `since`, such as a long poll the page keeps open, are not
+   * waited for. Returns how long it waited and how many of those requests were still out when it stopped.
    */
-  async awaitLoad(since, { limit = LOAD_MS, every = LOAD_CHECK_MS } = {}) {
+  async awaitLoad(since, { limit = LOAD_MS, every = LOAD_CHECK_MS, quiet = false } = {}) {
     const started = performance.now();
     const pending = () => [...this.requests.values()].filter(sent => sent >= since).length;
-    const quiet = () => this.lastRequestActivity < since || performance.now() - this.lastRequestActivity >= every;
-    while ((pending() || !quiet()) && performance.now() - started < limit) {
+    const busy = () => this.lastRequestActivity >= since && performance.now() - this.lastRequestActivity < every;
+    while ((pending() || (quiet && busy())) && performance.now() - started < limit) {
       await sleep(Math.min(every, limit - (performance.now() - started)));
     }
     const load = { waited_ms: Math.round(performance.now() - started), pending: pending() };
