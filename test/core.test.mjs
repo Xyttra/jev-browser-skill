@@ -1,7 +1,7 @@
 // Pure-logic tests for the decision layer. No network, no browser, no dependencies.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, columnHeader, sortState, aimPoint, seeThrough, ownText, coveredRun, describeNode, landing, CHECKS, OPERATIONS } from "../scripts/core.mjs";
+import { buildRequest, readDecision, verdict, blockReason, fingerprint, sortableHeader, columnHeader, sortState, aimPoint, seeThrough, ownText, coveredRun, describeNode, landing, acceptsAll, consentStop, CONSENT_HINT, RULES, CHECKS, OPERATIONS } from "../scripts/core.mjs";
 
 // A page shaped like a login form: a text field, a password field, a button, a link.
 const loginPage = () => ({
@@ -428,4 +428,83 @@ test("landing: on target when the click, or the press if no click fired, is the 
   assert.equal(landing({ target: box, mousedown: label, click: label }).on_target, true, "through its label");
   assert.equal(landing({ target: box, mousedown: caption, click: caption }).on_target, true, "inside its label");
   assert.equal(landing({ target: box, mousedown: outside, click: outside }).on_target, false);
+});
+
+test("acceptsAll: accept-all wording in English and the major EU languages", () => {
+  for (const label of ["Accept all", "Accept All Cookies", "Accept cookies", "Accept", "Allow all", "Allow all cookies",
+    "Allow cookies", "I agree", "Agree", "Agree and continue", "Accept and continue", "Accept & close", "OK", "Okay",
+    "Got it!", "Yes, I agree", "I accept", "Consent", "Alle akzeptieren", "Akzeptieren", "Alle Cookies akzeptieren",
+    "Zustimmen", "Allen zustimmen", "Alle zulassen", "Einverstanden", "Ich stimme zu", "Akzeptieren und weiter",
+    "Tout accepter", "Accepter", "Accepter et fermer", "J'accepte", "Autoriser tous les cookies", "Aceptar",
+    "Aceptar todo", "Aceptar todas las cookies", "Acepto", "Permitir todas", "Accetta", "Accetta tutti",
+    "Accetta tutti i cookie", "Accetto", "Consenti tutti", "Alles accepteren", "Accepteer alle cookies", "Akkoord",
+    "Ik ga akkoord", "Aceitar todos os cookies", "Concordo", "Akceptuję", "Zaakceptuj wszystkie", "Zgadzam się",
+    "Godkänn alla", "Acceptera alla", "Accepter alle", "Tillad alle", "Hyväksy kaikki", "Přijmout vše", "Souhlasím"]) {
+    assert.equal(acceptsAll(label), true, label);
+  }
+});
+
+test("acceptsAll: reject, necessary-only, settings and save wording is not accepting", () => {
+  for (const label of ["Reject all", "Decline", "No thanks, only essential cookies", "Only essential cookies",
+    "Accept only necessary", "Accept necessary cookies", "Accept essential cookies only", "Allow selection",
+    "Accept selected", "Save choices", "Settings", "Manage options", "Customise", "Continue without accepting",
+    "Continuer sans accepter", "Nur notwendige", "Nur notwendige Cookies akzeptieren", "Alle ablehnen",
+    "Tout refuser", "Rechazar todo", "Rifiuta tutto", "Alles weigeren", "Necessary only", "More options", "", "Cookie policy"]) {
+    assert.equal(acceptsAll(label), false, label);
+  }
+});
+
+test("acceptsAll: a label whose first part is accept-all wording, like Didomi's, is accepting; its other buttons are not", () => {
+  for (const label of ["Agree and close: Agree to our data processing and close", "Accepter & Fermer : Accepter notre traitement des données et fermer",
+    "Aceptar y cerrar: Aceptar nuestro procesamiento de datos y cerrar", "Accetta e chiudi: Accetta il trattamento dei dati e chiudi",
+    "Alle akzeptieren – empfohlen", "Akzeptieren & schließen"]) {
+    assert.equal(acceptsAll(label), true, label);
+  }
+  for (const label of ["Learn More: Configure your consents", "Continue without agreeing →", "Disagree and close: Disagree to our data processing and close",
+    "Refuser et s’abonner", "Paramétrer : Configurer vos consentements", "Settings: Accept all", "Our 457 partners"]) {
+    assert.equal(acceptsAll(label), false, label);
+  }
+});
+
+test("consentStop: a banner that can only be accepted, or a covering consent frame, explains a blocked stop", () => {
+  const consent = (withheld, offered = [], frames = []) => ({ consent: { withheld, offered, frames } });
+  assert.equal(consentStop(consent(["Accept all"])), true);
+  assert.equal(consentStop(consent(["Accept all"], ["Reject all"])), false, "it can be rejected");
+  assert.equal(consentStop(consent([])), false, "no banner");
+  assert.equal(consentStop({}), false, "a page with no consent field");
+  assert.equal(consentStop(consent([], [], ["iframe#sp"])), false, "a frame alone does not explain any stop");
+  assert.equal(consentStop(consent([], [], ["iframe#sp"]), { covered: true }), true, "but it does explain being covered");
+  assert.equal(consentStop(consent([], ["Reject all"], ["iframe#sp"]), { covered: true }), false);
+});
+
+test("consentStop: targets covered by a banner in the way whose accept was withheld: the banner blocked the run", () => {
+  // Le Monde's wall: accept, or subscribe; its other controls explain cookies and lead nowhere.
+  const wall = { withheld: ["Accepter et continuer"], offered: ["À quoi servent les cookies ?", "S’abonner"], frames: [], blocking: true };
+  assert.equal(consentStop({ consent: wall }, { covered: true }), true);
+  assert.equal(consentStop({ consent: wall }), false, "a stop that was not under a cover: Jev could still have declined");
+  assert.equal(consentStop({ consent: { ...wall, blocking: false } }, { covered: true }), false, "a banner at the edge did not cover the targets");
+  assert.equal(consentStop({ consent: { ...wall, withheld: [] } }, { covered: true }), false, "nothing was held back: Jev could have clicked anything on it");
+});
+
+test("with a cookie banner in the way that can be declined, the goal asks Jev to decline it", () => {
+  const banner = { withheld: ["Accept all"], offered: ["No, rather not"], frames: [], blocking: true };
+  const { body } = buildRequest({ ...base, page: { ...loginPage(), consent: banner } });
+  const goal = `${base.goal} ${CONSENT_HINT}`;
+  assert.match(CONSENT_HINT, /cookie banner is in the way, decline it/);
+  assert.equal(body.questions.operation.instructions.goal, goal);
+  for (const [name, q] of Object.entries(body.questions)) if (name.endsWith("_target")) assert.equal(q.instructions.goal, goal, name);
+  assert.equal(body.questions.goal_met.instructions, `Goal: ${base.goal}
+${CHECKS.goal_met}`, "the checks judge the caller's goal alone");
+  assert.doesNotMatch(RULES, /cookie/i, "the rules leave cookies to the goal: Jev weighs the goal, not the rules (measured)");
+});
+
+test("without a banner, with one that is not in the way, or with one that can only be accepted, the goal is the caller's own", () => {
+  // A bar at the edge stays out of the goal: told to decline "if it is in the way", Jev split
+  // between declining and the task (0.50 against 0.49) beside TMview's bottom bar.
+  for (const consent of [undefined, { withheld: [], offered: [], frames: [], blocking: false },
+    { withheld: ["Accept all"], offered: ["No thanks, only essential cookies"], frames: [], blocking: false },
+    { withheld: ["Accept all"], offered: [], frames: [], blocking: true }]) {
+    const { body } = buildRequest({ ...base, page: { ...loginPage(), consent } });
+    assert.equal(body.questions.operation.instructions.goal, base.goal);
+  }
 });

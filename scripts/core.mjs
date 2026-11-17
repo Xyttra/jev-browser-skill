@@ -85,6 +85,136 @@ export const coveredRun = history => history.length >= 3 && history.slice(-3).ev
  */
 export const skipReason = cover => ([TARGET_GONE, TARGET_HIDDEN].includes(cover) ? "target_gone" : "covered");
 
+/**
+ * Added to the goal of the operation and target questions while a cookie banner is in the way
+ * (it covers the middle of the screen, see SNAPSHOT) and has something besides accepting (a
+ * reject, decline or settings control). A banner at the edge stays out of the goal: told to
+ * decline one "if it is in the way", Jev cannot see that it is not, and split between declining
+ * and the task (0.50 against 0.49 beside TMview's bottom bar; 0.98 for the task without it). Jev weighs the goal,
+ * not the rules: on a banner that hides the page, the same advice in RULES left Jev answering
+ * BLOCKED (0.73-0.75) beside its decline button; in the goal it clicked decline (0.77-0.93).
+ */
+export const CONSENT_HINT = "If a cookie banner is in the way, decline it.";
+
+/**
+ * Whether the run stopped as blocked because of a cookie banner (blocked_reason
+ * "cookie_consent"), from the page's `consent` record (see SNAPSHOT): a banner was on screen
+ * whose accept controls were withheld and which offered no other control (no reject, no
+ * settings), so the only way past was accepting. Also when the run stopped because its targets
+ * were covered while a consent frame was on screen and no banner control was offered: the
+ * banner is in a frame the snapshot cannot read, so it can be neither rejected nor accepted. And
+ * when its targets were covered while a banner whose accept was withheld was in the way
+ * (blocking): what it offered besides accepting, such as Le Monde's "subscribe" or "what are
+ * cookies for?", did not get Jev past it.
+ */
+export function consentStop(page, { covered = false } = {}) {
+  const c = page.consent;
+  if (!c) return false;
+  if (covered && c.blocking && c.withheld.length) return true;
+  if (c.offered.length) return false;
+  return c.withheld.length > 0 || (covered && c.frames.length > 0);
+}
+
+/**
+ * Accept-all wording on a consent banner's button, in English and the major EU languages: the
+ * whole label (case, accents and punctuation aside) must be one of these, so "Accept only
+ * necessary", "Accept selected" or "Continue without accepting" never match. A bare "Accept",
+ * "OK" or "I agree" matches too: consentBanner decides whether the button is on a banner.
+ */
+export const ACCEPT_ALL = new RegExp("^(?:" + [
+  // English
+  "(?:yes )?(?:i )?(?:accept|allow|agree|consent)(?: to)?(?: all| everything)?(?: the)?(?: cookies?)?(?: and (?:continue|close|proceed))?",
+  "ok(?:ay)?(?: i agree| got it| thanks)?", "got it", "i understand", "sounds good", "fine by me",
+  // German
+  "(?:alle(?:n|s)? )?(?:cookies )?(?:akzeptieren|zustimmen|zulassen|erlauben|annehmen)(?: (?:und|and) (?:weiter|fortfahren|schliessen))?",
+  "(?:ich bin )?einverstanden", "ich stimme zu", "ich akzeptiere",
+  // French
+  "(?:tout )?(?:accepter|autoriser)(?: tout| tous)?(?: les cookies)?(?: (?:et|and) (?:fermer|continuer|poursuivre))?",
+  "(?:oui )?j'?accepte(?: tout| les cookies)?", "d'?accord", "ok pour moi",
+  // Spanish, Italian, Portuguese
+  "(?:aceptar|acepto|permitir|admitir)(?: todo| todas| todos)?(?: las| los)?(?: cookies)?(?: (?:y|and) (?:continuar|cerrar|seguir))?",
+  "(?:estoy )?de acuerdo",
+  "(?:accetta(?:re)?|accetto|consenti|acconsento)(?: tutto| tutti)?(?: i)?(?: cookies?)?(?: (?:e|and) (?:chiudi|continua|prosegui))?",
+  "(?:aceitar|aceito|permitir|concordo)(?: tudo| todos| todas)?(?: os| as)?(?: cookies)?(?: (?:e|and) (?:continuar|fechar))?",
+  // Dutch
+  "(?:alles |alle cookies )?(?:accepteren|accepteer|toestaan|aanvaarden|aanvaard)(?: alle| alles)?(?: cookies)?(?: (?:en|and) (?:doorgaan|sluiten))?",
+  "(?:ik ga )?akkoord(?: en doorgaan)?",
+  // Polish
+  "(?:akceptuj(?:e)?|zaakceptuj|zezwol|przyjmuje|zgadzam sie)(?: na)?(?: wszystkie| wszystko)?(?: pliki cookie| cookies?)?(?: (?:i|and) (?:przejdz|zamknij)(?: do serwisu)?)?",
+  // Swedish, Danish, Norwegian, Finnish, Czech
+  "(?:godkann|acceptera|accepter|accepterer|tillat|tillad|godta)(?: alla| alle)?(?: cookies| kakor)?", "jag godkanner", "jeg accepterer",
+  "hyvaksy(?: kaikki)?(?: evasteet)?", "(?:prijmout|povolit)(?: vse| vsechny)?(?: cookies)?", "souhlasim",
+].join("|") + ")$");
+
+/**
+ * Whether a control's label is accept-all wording (see ACCEPT_ALL): the whole label, or its first
+ * part before a colon, dash or bracket, as in Didomi's "Agree and close: Agree to our data
+ * processing and close". Runs in the page too.
+ */
+export function acceptsAll(label) {
+  const plain = text => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/ß/g, 'ss')
+    .replace(/[’`]/g, "'").replace(/&/g, ' and ').replace(/[^\p{L}\p{N}' ]+/gu, ' ').replace(/\s+/g, ' ').trim();
+  const whole = String(label || ''), head = whole.split(/\s*(?::|\s[-–—]\s|\()/)[0];
+  return ACCEPT_ALL.test(plain(whole)) || ACCEPT_ALL.test(plain(head));
+}
+
+/** Names a consent banner, or the frame of one, has in its id, class, title or src: the common cookie tools. */
+export const CONSENT_NAME = /cookie|consent|gdpr|\bcmp\b|onetrust|cookiebot|usercentrics|didomi|quantcast|truste|sp_message|iubenda|klaro|osano|termly|borlabs|complianz|tarteaucitron|axeptio/i;
+
+/** Words a banner's own text uses about cookies or consent, in the same languages as ACCEPT_ALL. */
+export const COOKIE_TALK = /cookie|evaste|kakor|consent|einwillig|consentement|consenso|consentimiento|toestemming|samtyck|samtykke|souhlas|zgod[ay]/i;
+
+/**
+ * Runs in the page: whether control `e` sits on a cookie or consent banner. Some ancestor
+ * (through shadow roots) is named like one (CONSENT_NAME in its id, class or aria-label), or is a
+ * layer over the page (fixed or sticky, a dialog, aria-modal) whose text is short (at most 5000
+ * characters, so not a whole fixed app shell) and talks about cookies or consent (COOKIE_TALK).
+ * A footer that links to a cookie policy is neither. Only the ancestors count, not the control
+ * itself: a link named like a consent tool (Le Monde's footer "Gestion des cookies", class
+ * gdpr-cs-parameter) opens the settings; it is not on a banner. With `self`, `e` counts too: for
+ * a point on the screen, whose hit may be the banner itself. `memo` caches the verdict per node.
+ */
+export function consentBanner(e, style = getComputedStyle, memo = new Map(), self = false) {
+  const up = n => n.parentElement || n.getRootNode?.()?.host;
+  const banner = n => {
+    if (CONSENT_NAME.test([n.id, n.getAttribute('class'), n.getAttribute('aria-label')].join(' '))) return true;
+    const layer = ['fixed', 'sticky'].includes(style(n).position) || n.tagName === 'DIALOG' ||
+      ['dialog', 'alertdialog'].includes(n.getAttribute('role')) || n.getAttribute('aria-modal') === 'true';
+    if (!layer) return false;
+    const text = ((n.textContent || '') + (n.shadowRoot?.textContent || '')).replace(/\s+/g, ' ');
+    return text.length <= 5000 && COOKIE_TALK.test(text);
+  };
+  for (let n = self ? e : up(e); n && !['BODY', 'HTML'].includes(n.tagName); n = up(n)) {
+    if (!memo.has(n)) memo.set(n, banner(n));
+    if (memo.get(n)) return true;
+  }
+  return false;
+}
+
+/**
+ * Runs in the page: the element under a point, looking inside open shadow roots. The document's
+ * own hit test stops at the outermost shadow host, so a control inside a web component would
+ * always look covered by its own host.
+ */
+export function deepHit(doc, x, y) {
+  let hit = doc.elementFromPoint(x, y);
+  while (hit?.shadowRoot) {
+    const inner = hit.shadowRoot.elementFromPoint(x, y);
+    if (!inner || inner === hit) break;
+    hit = inner;
+  }
+  return hit;
+}
+
+/** Runs in the page: the nearest ancestor of `e` (or `e`) matching `selector`, through shadow roots. */
+export function within(e, selector) {
+  for (let n = e; n; n = n.getRootNode?.()?.host) {
+    const match = n.closest(selector);
+    if (match) return match;
+  }
+  return null;
+}
+
 /** Runs in the page: a short description of an element, e.g. dialog "Cookie consent" or iframe#sp "Consent". */
 export function describeNode(n) {
   if (!n?.tagName) return null;
@@ -194,6 +324,9 @@ export function seeThrough(e) {
 export function landsOn(e, hit) {
   if (!hit) return false;
   if (hit === e || e.contains(hit)) return true;
+  for (let host = hit.getRootNode?.()?.host; host; host = host.getRootNode().host) { // inside a shadow root within e
+    if (host === e || e.contains(host)) return true;
+  }
   if (!['checkbox', 'radio'].includes(e.type)) return false;
   return [...(e.labels || [])].some(label => {
     if (label !== hit && !label.contains(hit)) return false;
@@ -223,17 +356,22 @@ export function aimPoint(e, doc = document, view = window) {
       const x = r.x + r.width / 2, y = r.y + r.height / 2;
       if (x < 0 || y < 0 || x >= view.innerWidth || y >= view.innerHeight) continue;
       tested = true;
-      if (lands(doc.elementFromPoint(x, y))) return { x, y };
+      if (lands(deepHit(doc, x, y))) return { x, y };
     }
   }
   return tested ? null : undefined;
 }
 
-// Runs inside the page. Lists the visible, enabled controls of the whole page and keeps a
-// code-owned id → element map so later actions resolve to the exact observed node.
+// Runs inside the page. Lists the visible, enabled controls of the whole page, open shadow roots
+// included (web components such as archive.org's), and keeps a code-owned id → element map so
+// later actions resolve to the exact observed node. A cookie banner's accept-all controls are
+// never offered (see consentBanner, acceptsAll): page.consent records them as withheld, the
+// banner's other controls as offered, consent frames the snapshot cannot read as frames, and
+// whether a banner is in the way (blocking: the middle of the screen is part of one).
 const SNAPSHOT = `(() => {
   if (!document.body) return null;
-  const NOSORT = ${NOSORT}, sortableHeader = ${sortableHeader}, sortState = ${sortState}, columnHeader = ${columnHeader}, seeThrough = ${seeThrough}, landsOn = ${landsOn}, aimPoint = ${aimPoint};
+  const NOSORT = ${NOSORT}, sortableHeader = ${sortableHeader}, sortState = ${sortState}, columnHeader = ${columnHeader}, seeThrough = ${seeThrough}, landsOn = ${landsOn}, aimPoint = ${aimPoint}, deepHit = ${deepHit}, within = ${within};
+  const ACCEPT_ALL = ${ACCEPT_ALL}, acceptsAll = ${acceptsAll}, CONSENT_NAME = ${CONSENT_NAME}, COOKIE_TALK = ${COOKIE_TALK}, consentBanner = ${consentBanner}, describeNode = ${describeNode};
   const SUBMENUS = ${JSON.stringify(SUBMENUS)}, LISTS = ${JSON.stringify(LISTS)}, ownText = ${ownText};
   const CONTROLS = ${JSON.stringify(CONTROLS)}, ITEMS = ${JSON.stringify(ITEMS)};
   const cache = window.__jev ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
@@ -242,12 +380,12 @@ const SNAPSHOT = `(() => {
     const id = cache.ids.get(e); cache.nodes.set(id, e); return id;
   };
   for (const [id, e] of cache.nodes) if (!e.isConnected) cache.nodes.delete(id);
-  const visible = e => !e.closest('[aria-hidden="true"],[inert]') &&
+  const visible = e => !within(e, '[aria-hidden="true"],[inert]') &&
     e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
   // A see-through checkbox or radio is judged by hit test, not opacity: offered unless a click on
   // screen would miss it and its label. Below the fold there is nothing to test yet, as for any
   // other control: LOCATE scrolls to it and its hit test decides then.
-  const usable = e => visible(e) || (!e.closest('[aria-hidden="true"],[inert]') && seeThrough(e) && aimPoint(e) !== null);
+  const usable = e => visible(e) || (!within(e, '[aria-hidden="true"],[inert]') && seeThrough(e) && aimPoint(e) !== null);
   const clean = s => (s || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
   const labelText = label => { // a <label> may wrap its control; keep the caption only
     const copy = label.cloneNode(true);
@@ -280,7 +418,7 @@ const SNAPSHOT = `(() => {
   };
   const name = e => clean(
     (e.getAttribute('aria-labelledby') || '').split(/\\s+/)
-      .map(id => document.getElementById(id)?.innerText || '').join(' ')) ||
+      .map(id => (e.getRootNode().getElementById?.(id) || document.getElementById(id))?.innerText || '').join(' ')) ||
     clean(e.getAttribute('aria-label')) ||
     clean([...(e.labels || [])].map(labelText).join(' ')) ||
     (['button', 'submit', 'reset'].includes(e.type) ? clean(e.value) : '') ||
@@ -308,9 +446,25 @@ const SNAPSHOT = `(() => {
   };
   const selector = 'a[href],button,input,textarea,select,summary,th,[contenteditable="true"],' +
     roles.map(r => '[role="' + r + '"]').join(',');
-  const elements = []; let omitted = 0;
-  for (const e of document.querySelectorAll(selector)) {
-    if (elements.length >= 250) { omitted++; continue; } // Jev accepts at most 255 choices per question
+  // Every control in document order, each shadow root's at its host; and the page's iframes.
+  const all = [], iframes = [];
+  const collect = root => {
+    for (const e of root.querySelectorAll('*')) {
+      if (e.matches(selector)) all.push(e);
+      if (e.tagName === 'IFRAME') iframes.push(e);
+      if (e.shadowRoot) collect(e.shadowRoot);
+    }
+  };
+  collect(document);
+  const consent = { withheld: [], offered: [], frames: [] }, banners = new Map();
+  // Jev accepts at most 255 choices per question, so at most 250 controls are offered, in page
+  // order. Consent tools add their banner at the end of the page, so past the limit only banner
+  // controls are still read, each taking the place of the last ordinary one: a long page never
+  // hides its cookie banner (Le Monde's wall came after 286 controls once its articles loaded).
+  const elements = [], onBanner = new Set(); let omitted = 0;
+  for (const e of all) {
+    const full = elements.length >= 250;
+    if (full && !consentBanner(e, getComputedStyle, banners)) { omitted++; continue; }
     if (['file', 'hidden'].includes(e.type)) continue;
     if (!usable(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
     const r = e.getBoundingClientRect(), kind = role(e);
@@ -322,8 +476,14 @@ const SNAPSHOT = `(() => {
     if (kind === 'columnheader' && !sortableHeader(e)) continue;
     if (r.bottom + scrollY <= 0 || r.right + scrollX <= 0) continue; // placed off the page, like a skip link
     if (aimPoint(e) === null) continue; // on screen: offer it only if a click would land on it
-    const item = { node: identity(e), role: kind, label: name(e) || kind, rect: { x: r.x, y: r.y, w: r.width, h: r.height } };
-    if (e.closest('[role="search"],search')) item.search = true;
+    const label = name(e) || kind;
+    const banner = consentBanner(e, getComputedStyle, banners);
+    if (banner) {
+      if (acceptsAll(label)) { consent.withheld.push(label); continue; } // Jev never accepts cookies
+      consent.offered.push(label);
+    }
+    const item = { node: identity(e), role: kind, label, rect: { x: r.x, y: r.y, w: r.width, h: r.height } };
+    if (within(e, '[role="search"],search')) item.search = true;
     const href = e.getAttribute('href');
     if (e.tagName === 'A' && href && !/^(#|javascript:)/i.test(href)) item.href = e.href.split('#')[0];
     if (['checkbox', 'radio'].includes(e.type)) item.checked = e.checked;
@@ -344,24 +504,44 @@ const SNAPSHOT = `(() => {
       if (kind === 'password') item.value = e.value ? '••••••' : ''; // filled or not; the value itself is never read
       else if (editable) item.value = clean('value' in e ? e.value : e.innerText);
     }
+    if (full) { // make room: drop the last control not on a banner
+      const last = elements.findLastIndex(x => !onBanner.has(x));
+      if (last < 0) { omitted++; continue; }
+      elements.splice(last, 1); omitted++;
+    }
+    if (banner) onBanner.add(item);
     elements.push(item);
   }
-  const words = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  const range = document.createRange(); let node, length = 0;
-  while ((node = walker.nextNode()) && length < 5000) {
+  const middle = deepHit(document, innerWidth / 2, innerHeight / 2);
+  consent.blocking = Boolean(middle && consentBanner(middle, getComputedStyle, banners, true));
+  for (const f of iframes) { // a consent banner in a frame: its controls cannot be read from here
+    const r = f.getBoundingClientRect();
+    if (r.width && r.height && visible(f) && CONSENT_NAME.test([f.id, f.name, f.title, f.src, f.getAttribute('class')].join(' '))) consent.frames.push(describeNode(f));
+  }
+  // The visible text, each shadow root's at its host.
+  function* texts(root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode());) {
+      if (n.nodeType === 3) yield n;
+      else if (n.shadowRoot) yield* texts(n.shadowRoot);
+    }
+  }
+  const words = [], range = document.createRange(); let length = 0;
+  for (const node of texts(document.body)) {
+    if (length >= 5000) break;
     const value = node.textContent.trim(), parent = node.parentElement;
     if (!value || !parent || parent.closest('script,style,noscript,template') || !visible(parent)) continue;
     range.selectNodeContents(node); const r = range.getBoundingClientRect();
     if (r.width && r.height) { words.push(value); length += value.length; }
   }
-  return { url: location.href, title: document.title, text: words.join('\\n').slice(0, 5000), elements, omitted,
+  return { url: location.href, title: document.title, text: words.join('\\n').slice(0, 5000), elements, omitted, consent,
     viewport: { w: innerWidth, h: innerHeight, x: scrollX, y: scrollY } };
 })()`;
 
 // Runs inside the page just before input: re-check the observed node, bring it on screen, find
 // a point on it that a click would land on.
 const LOCATE = `((id, note, coordinates = true) => {
-  const landsOn = ${landsOn}, aimPoint = ${aimPoint};
+  const landsOn = ${landsOn}, aimPoint = ${aimPoint}, deepHit = ${deepHit};
   const e = window.__jev?.nodes.get(id);
   if (!e?.isConnected || e.matches(':disabled') || !e.checkVisibility()) return null;
   e.closest('a[target]')?.removeAttribute('target'); // stay in this tab
@@ -410,10 +590,10 @@ export function landing({ target, mousedown, click }) {
 // the target, else another point of the target that does, else null: the target is gone or
 // covered and nothing is pressed. No scroll, no highlight.
 const REAIM = `((id, x, y) => {
-  const landsOn = ${landsOn}, aimPoint = ${aimPoint};
+  const landsOn = ${landsOn}, aimPoint = ${aimPoint}, deepHit = ${deepHit};
   const e = window.__jev?.nodes.get(id);
   if (!e?.isConnected || e.matches(':disabled') || !e.checkVisibility()) return null;
-  if (landsOn(e, document.elementFromPoint(x, y))) return { x, y };
+  if (landsOn(e, deepHit(document, x, y))) return { x, y };
   return aimPoint(e) || null;
 })`;
 
@@ -448,15 +628,15 @@ export const TARGET_HIDDEN = "the target is hidden or disabled";
 // centre of its first line box), or why there is no such point. A hit inside a dialog is
 // described as the dialog, since that is what the caller has to dismiss.
 const COVER = `((id) => {
-  const describeNode = ${describeNode};
+  const describeNode = ${describeNode}, deepHit = ${deepHit}, within = ${within};
   const e = window.__jev?.nodes.get(id);
   if (!e?.isConnected) return ${JSON.stringify(TARGET_GONE)};
   if (e.matches(':disabled') || !e.checkVisibility()) return ${JSON.stringify(TARGET_HIDDEN)};
   const r = [...e.getClientRects()].find(r => r.width && r.height) || e.getBoundingClientRect();
   const x = r.x + r.width / 2, y = r.y + r.height / 2;
   if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'off screen';
-  const hit = document.elementFromPoint(x, y);
-  return describeNode(hit?.closest('dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]') || hit) || 'nothing';
+  const hit = deepHit(document, x, y);
+  return describeNode((hit && within(hit, 'dialog,[role="dialog"],[role="alertdialog"],[aria-modal="true"]')) || hit) || 'nothing';
 })`;
 
 export { SNAPSHOT, LOCATE, REAIM, COVER, ARM_LANDING, READ_LANDING };
@@ -517,7 +697,9 @@ export function buildRequest({ goal, page, texts = [], secret = "", history = []
     : op === "ENTER" ? last?.operation === "TYPE"
     : true));
 
-  const questions = { operation: { type: "choice", criteria: offered, instructions: { goal, rules: RULES } } };
+  // The checks judge the caller's goal alone; the choices also hear CONSENT_HINT.
+  const steer = page.consent?.blocking && page.consent.offered.length ? `${goal} ${CONSENT_HINT}` : goal;
+  const questions = { operation: { type: "choice", criteria: offered, instructions: { goal: steer, rules: RULES } } };
   for (const [name, statement] of Object.entries(CHECKS)) questions[name] = { type: "noul", instructions: `Goal: ${goal}\n${statement}` };
   for (const [op, candidates] of Object.entries(targets)) {
     if (Object.keys(candidates).length < 2) continue; // one candidate needs no question
@@ -525,7 +707,7 @@ export function buildRequest({ goal, page, texts = [], secret = "", history = []
       type: "choice",
       criteria: Object.fromEntries(Object.entries(candidates).map(([id, { e, option }]) =>
         [id, option ? { ...describe(e), option: option.label } : describe(e)])),
-      instructions: { goal, operation: op, rules: [RULES, TARGET_RULES], ...(op === "TYPE" ? { text_values: texts } : {}) },
+      instructions: { goal: steer, operation: op, rules: [RULES, TARGET_RULES], ...(op === "TYPE" ? { text_values: texts } : {}) },
     };
   }
   const state = {

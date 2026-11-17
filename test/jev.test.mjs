@@ -231,3 +231,35 @@ test("the wait after an action does not ask for quiet time", async () => {
   assert.equal(loads.length, 1);
   assert.equal(loads[0].quiet, undefined);
 });
+
+const walled = (consent, elements = [button]) => ({ ...page, elements, consent });
+
+test("a stop while a cookie banner can only be accepted is blocked as cookie_consent, whatever stopped it", async () => {
+  const only = { withheld: ["Accept all"], offered: [], frames: [] };
+  for (const [decisions, chrome] of [
+    [[decision("BLOCKED")], stubChrome({ observe: async () => walled(only, []) })],
+    [[decision("WAIT")], stubChrome({ observe: async () => walled(only, []) })],
+    [[click()], stubChrome({ observe: async () => walled(only), locate: async () => null })],
+  ]) {
+    const { result, lines } = await loop(decisions, { chrome });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.blocked_reason, "cookie_consent", decisions[0].operation);
+    assert.ok(lines.some(l => /cookie banner/.test(l)), "the log says why");
+  }
+});
+
+test("a banner that can be rejected, or no banner, keeps the ordinary blocked reason", async () => {
+  const rejectable = { withheld: ["Accept all"], offered: ["Reject all"], frames: [] };
+  let { result } = await loop([decision("BLOCKED")], { chrome: stubChrome({ observe: async () => walled(rejectable) }) });
+  assert.equal(result.blocked_reason, "jev_blocked");
+  ({ result } = await loop([decision("BLOCKED")]));
+  assert.equal(result.blocked_reason, "jev_blocked", "a page with no consent field");
+});
+
+test("covered by a consent frame the snapshot cannot read is cookie_consent; other stops beside it are not", async () => {
+  const framed = { withheld: [], offered: [], frames: ['iframe#sp_message_iframe "Consent"'] };
+  let { result } = await loop([click()], { chrome: stubChrome({ observe: async () => walled(framed), locate: async () => null }) });
+  assert.equal(result.blocked_reason, "cookie_consent");
+  ({ result } = await loop([decision("BLOCKED")], { chrome: stubChrome({ observe: async () => walled(framed) }) }));
+  assert.equal(result.blocked_reason, "jev_blocked");
+});

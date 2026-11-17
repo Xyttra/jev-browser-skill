@@ -78,8 +78,8 @@ Then a JSON summary: `status` (`done`, `blocked`, `unsure`, `max_steps`), `steps
 Code, not Jev, decides when to stop. Each step also asks two yes/no checks, `goal_met` and
 `stuck`. `done` needs `goal_met` ≥ 0.6 (or ≥ 0.85 on its own); `blocked` comes from a BLOCKED
 answer, `stuck` ≥ 0.85, three steps that changed nothing, or three skipped steps in a row, and the
-summary's `blocked_reason` says which: `jev_blocked`, `stuck_check`, `no_progress`, `covered` or
-`target_gone`. With `covered`, `covered_by` describes what was on top of the last target, usually
+summary's `blocked_reason` says which: `jev_blocked`, `stuck_check`, `no_progress`, `covered`,
+`target_gone` or `cookie_consent` (see Cookie banners). With `covered`, `covered_by` describes what was on top of the last target, usually
 a consent or sign-in pop-up; with `target_gone` it says the target is gone or hidden or disabled
 (the page changed under Jev, e.g. a list that re-rendered), so there is no pop-up to dismiss. A WAIT step watches the page until it
 changes, up to 5 seconds, so a slow page gets about 15 seconds before `no_progress`. After every
@@ -96,7 +96,9 @@ checks. Nothing was done on that step.
 
 - `blocked`: read the step log, then retry once with a more explicit goal or a missing
   `--text` value. For `covered`, dismiss what `covered_by` names first: rerun with a goal that
-  starts by closing it ("Accept or close the cookie pop-up, then ..."). Only for `covered`: for
+  starts by closing it ("Close the sign-up pop-up, then ..."), but never by accepting cookies.
+  For `cookie_consent`, do not retry with a goal that accepts: tell the user the site lets them
+  in only if they accept cookies (or subscribe), and let them decide. Only for `covered`: for
   `target_gone` there is nothing to close, so look at the final page (`page_text`, the
   screenshot) and rethink the goal for the page as it is now before retrying.
 - `unsure`: you decide. If the proposal or another listed option is clearly right, rerun with
@@ -112,8 +114,30 @@ Report the step log and timings to the user; the speed is the point.
 `CLICK`, `TYPE`, `SELECT`, `ENTER`, `WAIT`, `DONE`, `BLOCKED`. Only operations that are possible on the
 current page are offered, and Jev can only answer with an index into the observed element table.
 The whole page is observed and targets are scrolled into view, so there is no scroll operation.
-Model output never becomes a selector or code.
+Model output never becomes a selector or code. Controls inside web components (open shadow
+roots, as on archive.org) are read and clicked like any other.
 
 Only the first 250 controls on a page are offered, because Jev takes at most 255 choices per
 question. The step log warns when controls were skipped; if the target was among them, start
-from a URL closer to it.
+from a URL closer to it. A cookie banner's controls are always among those offered, even when
+the banner comes after the first 250 controls on the page.
+
+## Cookie banners
+
+Jev never accepts cookies beyond the necessary ones. This is enforced in the code, not left to Jev:
+
+- On a cookie or consent banner, buttons that accept everything ("Accept all", "Allow all",
+  "I agree", "Agree and close", "OK", "Alle akzeptieren", "Tout accepter", "Accepter et
+  continuer", and the same in Spanish, Italian, Portuguese, Dutch, Polish, Swedish,
+  Danish, Norwegian, Finnish and Czech) are never shown to Jev, so it cannot click them. Only the banner's own
+  buttons are held back: an ordinary "Accept" (an invitation) or "OK" (a saved-changes dialog)
+  elsewhere on the page still works. "Accept only necessary" or "Continue without accepting"
+  are not accept-all and stay available.
+- When a banner covers the middle of the screen, Jev is asked to decline it, and it then picks
+  the banner's "Reject all", "Only necessary", "No thanks" or settings button. A banner at the
+  edge of the screen that does not block the task is left alone.
+- When the only way past a banner is accepting (a "pay or accept" wall, or a banner with no
+  reject button), the run stops as `blocked` with `blocked_reason: "cookie_consent"`, and the
+  step log says which accept button was held back. This also covers a banner inside a frame the
+  page reader cannot see into, when it hides the page.
+- Do not write goals that tell Jev to accept cookies; it cannot, and the run will stop.

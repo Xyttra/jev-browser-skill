@@ -1,0 +1,17 @@
+<!doctype html>
+<title>Consent page</title>
+<!-- A cookie banner fixed at the bottom (accept, reject, settings), a German one inside a shadow
+     root like Usercentrics, and ordinary controls that must still be offered: an invitation's
+     Accept, a saved-changes dialog's OK, and a newsletter I agree in a footer that links to the
+     cookie policy and, like Le Monde's, to the cookie settings with a consent tool's class name. -->
+<style>body { font: 16px sans-serif; margin: 20px; } #banner { position: fixed; bottom: 0; left: 0; right: 0; background: #eee; padding: 10px; }</style>
+<section><p>You have been invited to join the team.</p><button id="invite">Accept</button></section>
+<div role="dialog" aria-label="Saved" id="saved" style="position:fixed;top:10px;right:10px;background:#dfd;padding:10px"><p>Your changes were saved.</p><button id="ok">OK</button></div>
+<footer><a href="#policy">Cookie policy</a> <a href="#prefs" class="footer__link gdpr-cs-parameter">Cookie settings</a><p>Get our newsletter.</p><button id="agree">I agree</button></footer>
+<div id="banner" class="cookie-banner"><p>We use cookies to improve your experience and for marketing.</p>
+  <button id="accept">Accept all</button> <button id="reject">Reject all</button> <button id="settings">Settings</button></div>
+<div id="usercentrics-root" style="position:fixed;bottom:80px;left:0"></div>
+<script>
+  document.getElementById('usercentrics-root').attachShadow({ mode: 'open' }).innerHTML =
+    '<div><p>Wir verwenden Cookies.</p><button id="alle">Alle akzeptieren</button> <button id="nur">Nur notwendige</button></div>';
+</script>

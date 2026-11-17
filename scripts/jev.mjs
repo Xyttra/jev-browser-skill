@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { blockReason, coveredRun, decide as decideStep, fingerprint, skipReason, verdict } from "./core.mjs";
+import { blockReason, consentStop, coveredRun, decide as decideStep, fingerprint, skipReason, verdict } from "./core.mjs";
 import { Chrome, LOAD_MS, sleep } from "./browser.mjs";
 
 const API = "https://api.typesafe.ai/v1/systemone";
@@ -197,6 +197,15 @@ export async function run({ chrome, ask, decide = decideStep, goal, texts = [], 
     if (acted) trace.steps.at(-1).load = await chrome.awaitLoad(acted); // the requests the action started, up to 10s
   }
   page = await chrome.observe();
+  // Jev never accepts cookies (core.mjs withholds accept-all controls), so a run that stopped
+  // while a cookie banner offered nothing but accepting is blocked by that banner, whatever
+  // stopped it: Jev answering BLOCKED, being unsure, waiting in vain or clicking under a cover.
+  if ((status === "blocked" || status === "unsure") && consentStop(page, { covered: blocked === "covered" })) {
+    status = "blocked"; blocked = "cookie_consent"; unsure = undefined;
+    const c = page.consent;
+    log(`   blocked: a cookie banner is in the way and Jev does not accept cookies (`
+      + (c.withheld.length ? `withheld: ${c.withheld.map(l => `"${l}"`).join(", ")}` : `banner in ${c.frames.join(", ")}`) + ")");
+  }
   // The final screenshot gets 20s, not a trace step's 5s. A failure is noted in the summary and
   // the run ends as it would have: the summary and the trace are still written.
   let screenshotError;

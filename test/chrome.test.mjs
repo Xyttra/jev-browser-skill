@@ -284,3 +284,68 @@ test("a request that never answers ends the load wait at its limit", async t => 
     assert.ok(stuck.load.waited_ms >= 2000 && stuck.load.waited_ms < 2600, `${stuck.load.waited_ms}ms`);
   } finally { server.close(); }
 });
+
+test("controls and text inside open shadow roots are offered, and a pop-up's field there is typed into", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("shadow.html"));
+  let page = await chrome.observe();
+  t.diagnostic(`offered: ${labels(page).join(", ")}`);
+  assert.ok(page.text.includes("Find a book"), "text inside a shadow root is page text");
+  assert.equal(find(page, "Search books")?.op, "TYPE", "a field two shadow roots deep, named by aria-labelledby in its own root");
+  assert.equal(find(page, "Search books").search, true, "inside a role=search form");
+  assert.ok(find(page, "Go"), "its submit button");
+  assert.ok(!labels(page).includes("Hidden button"), "a control under an aria-hidden host is not offered");
+  assert.ok(await chrome.locate(find(page, "Go").node, ""), "a shadow control is aimed at: the hit test sees into its root");
+
+  await chrome.evaluate("openOverlay()");
+  page = await chrome.observe();
+  assert.ok(!find(page, "Home"), "the light-DOM link the pop-up covers is not offered");
+  const field = find(page, "Search everything");
+  assert.equal(field?.op, "TYPE", "the pop-up's field, in a shadow root, is offered");
+  await chrome.click(await chrome.locate(field.node, ""), 0, field.node);
+  await chrome.type(field.node, "Aldus Manutius");
+  assert.equal(await chrome.evaluate("document.querySelector('x-overlay').shadowRoot.getElementById('pq').value"), "Aldus Manutius");
+});
+
+test("a consent banner's accept-all controls are withheld; its reject controls and ordinary Accept, OK and I agree are offered", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("consent.html"));
+  const page = await chrome.observe();
+  t.diagnostic(`offered: ${labels(page).join(", ")}; consent: ${JSON.stringify(page.consent)}`);
+  for (const label of ["Accept all", "Alle akzeptieren"]) assert.ok(!find(page, label), `${label} is not offered`);
+  for (const label of ["Reject all", "Settings", "Nur notwendige", "Accept", "OK", "I agree", "Cookie settings"]) assert.ok(find(page, label), `${label} is offered`);
+  assert.deepEqual(page.consent.withheld.sort(), ["Accept all", "Alle akzeptieren"]);
+  assert.deepEqual(page.consent.offered.sort(), ["Nur notwendige", "Reject all", "Settings"]);
+  assert.equal(page.consent.blocking, false);
+});
+
+test("a cookie banner after the first 250 controls is still seen: its accept withheld, its other controls offered", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("consent-crowded.html"));
+  const page = await chrome.observe();
+  assert.ok(page.elements.length <= 250 && page.omitted > 0, `the limit still holds (${page.elements.length} offered, ${page.omitted} omitted)`);
+  assert.ok(find(page, "Only necessary"), "the banner's decline is offered");
+  assert.ok(!find(page, "Accept all"), "the banner's accept is not");
+  assert.deepEqual(page.consent.withheld, ["Accept all"]);
+  assert.deepEqual(page.consent.offered, ["Only necessary"]);
+  assert.ok(find(page, "Article 1"), "the page's own controls come first");
+});
+
+test("a consent wall whose only way past is accepting offers nothing to click and says so", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("consent-wall.html"));
+  const page = await chrome.observe();
+  assert.deepEqual(labels(page), [], "the accept button is withheld and the link under the wall is covered");
+  assert.deepEqual(page.consent, { withheld: ["Accept and continue"], offered: [], frames: [], blocking: true });
+});
+
+test("a banner is in the way when it covers the middle of the screen, not when it is a bar at the edge", async t => {
+  if (skip) return t.skip(skip);
+  await chrome.goto(fixture("consent-modal.html"));
+  let page = await chrome.observe();
+  assert.deepEqual(labels(page), ["No, rather not"], "the link under the overlay is covered and Accept is withheld");
+  assert.equal(page.consent.blocking, true);
+  await chrome.goto(fixture("consent.html"));
+  page = await chrome.observe();
+  assert.equal(page.consent.blocking, false, "a bar at the bottom");
+});

@@ -1,0 +1,24 @@
+<!doctype html>
+<title>Shadow page</title>
+<!-- A page built from web components, like archive.org and Open Library's search pop-up: its
+     text and controls live in open shadow roots, two levels deep. #home is a light-DOM link the
+     pop-up (inside a shadow root) covers once it is opened. #hidden-host is aria-hidden, so the
+     control inside it is not offered. -->
+<style>body { font: 16px sans-serif; margin: 20px; }</style>
+<a id="home" href="#home">Home</a>
+<search-app id="app"></search-app>
+<div aria-hidden="true"><x-box id="hidden-host"></x-box></div>
+<script>
+  const root = (host, html) => { host.attachShadow({ mode: 'open' }).innerHTML = html; return host.shadowRoot; };
+  const app = root(document.getElementById('app'), '<h1>Find a book</h1><search-box id="box"></search-box>');
+  root(app.getElementById('box'),
+    '<form role="search" onsubmit="return false"><span id="qlabel">Search books</span> ' +
+    '<input type="search" id="q" aria-labelledby="qlabel"> <button id="go" type="submit">Go</button></form>');
+  root(document.getElementById('hidden-host'), '<button id="secret">Hidden button</button>');
+  window.openOverlay = () => {
+    const host = document.createElement('x-overlay');
+    document.body.append(host);
+    root(host, '<div role="dialog" aria-label="Search pop-up" style="position:fixed;inset:0;background:#fffe;padding:80px">' +
+      '<input type="search" id="pq" placeholder="Search everything"></div>');
+  };
+</script>

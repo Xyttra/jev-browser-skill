@@ -1,0 +1,11 @@
+<!doctype html>
+<title>Crowded page</title>
+<!-- A long news page with 300 links, and a cookie banner added at the end of the body, as most
+     consent tools do: past the first 250 controls in page order. -->
+<style>body { font: 16px sans-serif; margin: 20px; } #cmp { position: fixed; right: 10px; bottom: 10px; width: 300px; background: #eee; padding: 10px; }</style>
+<main id="list"></main>
+<script>
+  const list = document.getElementById('list');
+  for (let i = 1; i <= 300; i++) list.insertAdjacentHTML('beforeend', '<p><a href="#a' + i + '">Article ' + i + '</a></p>');
+  document.body.insertAdjacentHTML('beforeend', '<div id="cmp" class="consent-box"><p>We use cookies.</p><button>Accept all</button> <button>Only necessary</button></div>');
+</script>
