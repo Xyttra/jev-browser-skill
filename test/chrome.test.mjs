@@ -6,7 +6,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Chrome, sleep, WAIT_MS } from "../scripts/browser.mjs";
+import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { Chrome, sleep, WAIT_MS, LOAD_MS } from "../scripts/browser.mjs";
 
 const fixture = name => pathToFileURL(join(import.meta.dirname, "fixtures", name)).href;
 const profile = mkdtempSync(join(tmpdir(), "jev-test-"));
@@ -227,4 +229,58 @@ test("a hover pop-up that covers the target before the press takes no click", as
   await sleep(100);
   t.diagnostic(`first line covered: clicks ${await chrome.evaluate("JSON.stringify(log)")}`);
   assert.deepEqual(await chrome.evaluate("log"), ["story"], "pressed on the link's other line instead");
+});
+
+/** Serves slow-fetch.html, and answers /results after ?delay= ms (never, for ?delay=never). */
+async function slowServer() {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, "http://localhost");
+    if (url.pathname !== "/results") return response.end(readFileSync(join(import.meta.dirname, "fixtures", "slow-fetch.html")));
+    const delay = url.searchParams.get("delay");
+    if (delay !== "never") setTimeout(() => response.end("<h2>7 trade marks found</h2>"), Number(delay));
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  return {
+    url: delay => `http://127.0.0.1:${server.address().port}/?delay=${delay}`,
+    close: () => { server.closeAllConnections(); server.close(); },
+  };
+}
+
+/** Opens the search page, clicks Search, and observes the page as the loop would. */
+async function search(url, { awaitLoad = true, limit } = {}) {
+  await chrome.goto(url);
+  const page = await chrome.observe();
+  const acted = performance.now();
+  await chrome.click(await chrome.locate(find(page, "Search").node, ""));
+  await chrome.react(page, acted);
+  await chrome.settle();
+  const load = awaitLoad ? await chrome.awaitLoad(acted, limit ? { limit } : undefined) : null;
+  return { load, page: await chrome.observe(), ms: Math.round(performance.now() - acted) };
+}
+
+test("a click whose results come from a slow request is observed after they arrive, not on the empty shell", async t => {
+  if (skip) return t.skip(skip);
+  const server = await slowServer();
+  try {
+    const control = await search(server.url(2500), { awaitLoad: false });
+    t.diagnostic(`without the load wait: observed after ${control.ms}ms, text ${JSON.stringify(control.page.text)}`);
+    assert.doesNotMatch(control.page.text, /trade marks found/, "fixture check: the page looks settled before its results arrive");
+
+    const fixed = await search(server.url(2500));
+    t.diagnostic(`with the load wait: ${JSON.stringify(fixed.load)}, observed after ${fixed.ms}ms`);
+    assert.match(fixed.page.text, /7 trade marks found/);
+    assert.equal(fixed.load.pending, 0);
+    assert.ok(fixed.load.waited_ms < LOAD_MS, `ended when the request finished (${fixed.load.waited_ms}ms)`);
+  } finally { server.close(); }
+});
+
+test("a request that never answers ends the load wait at its limit", async t => {
+  if (skip) return t.skip(skip);
+  const server = await slowServer();
+  try {
+    const stuck = await search(server.url("never"), { limit: 2000 });
+    t.diagnostic(`never-answering request: ${JSON.stringify(stuck.load)}`);
+    assert.equal(stuck.load.pending, 1);
+    assert.ok(stuck.load.waited_ms >= 2000 && stuck.load.waited_ms < 2600, `${stuck.load.waited_ms}ms`);
+  } finally { server.close(); }
 });

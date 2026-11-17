@@ -161,6 +161,7 @@ export async function run({ chrome, ask, decide = decideStep, goal, texts = [], 
       }
     }
     await chrome.settle();
+    if (acted) trace.steps.at(-1).load = await chrome.awaitLoad(acted); // the requests the action started, up to 10s
   }
   page = await chrome.observe();
   // The final screenshot gets 20s, not a trace step's 5s. A failure is noted in the summary and

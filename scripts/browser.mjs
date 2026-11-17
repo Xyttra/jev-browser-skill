@@ -17,6 +17,25 @@ export const HOVER_MS = 120;
 /** The longest one WAIT step watches the page for a change. */
 export const WAIT_MS = 5000;
 
+/**
+ * After an action, the longest the loop waits for the requests it started to finish, and how
+ * often it checks. A search that swaps in an empty shell and fills it from a slow request looks
+ * settled to observe() while its results are still in transit (seen on TMview). The page counts
+ * as loaded when a check finds nothing loading and nothing sent or finished since the check
+ * before: a page loads in waves (its program, then the data the program asks for) with short
+ * pauses between them, and a check can land in a pause. So a step that loaded anything costs up
+ * to one extra interval; a page that keeps sending requests is waited on for the whole limit.
+ */
+export const LOAD_MS = 10000;
+export const LOAD_CHECK_MS = 500; // measured pauses between loading waves: up to 0.35s (a typing-suggestions list)
+
+/**
+ * The request types that carry page content. Scripts count: on a cold start a page's own program
+ * can take seconds to arrive, and until it runs there is nothing to see (TMview: 6s). Images,
+ * fonts, beacons and the like never hold up a step.
+ */
+const CONTENT_REQUESTS = new Set(["Document", "Script", "XHR", "Fetch"]);
+
 /** The longest reading where a click landed may take. It is read after the reaction, so it never eats into it. */
 export const LANDING_MS = 1000;
 
@@ -154,6 +173,8 @@ class Chrome {
     this.profile = profile;
     this.headless = headless;
     this.pending = new Map();
+    this.requests = new Map(); // in-flight content requests of the page: id → when it was sent
+    this.lastRequestActivity = -Infinity; // when a content request was last sent or ended
     this.nextId = 1;
   }
 
@@ -166,18 +187,7 @@ class Chrome {
       this.socket.onopen = () => { clearTimeout(hint); clearTimeout(giveUp); resolve(); };
       this.socket.onerror = () => { clearTimeout(hint); clearTimeout(giveUp); reject(new Error("Could not connect to the browser.")); };
     });
-    this.socket.onmessage = event => {
-      const message = JSON.parse(event.data);
-      // The main frame's id is the target id. Note when it starts navigating and when that ends.
-      if (message.method === "Page.frameRequestedNavigation" || message.method === "Page.frameStartedLoading") {
-        if (message.params.frameId === this.targetId) this.navigationStarted = performance.now();
-      } else if (message.method === "Page.frameNavigated" ? !message.params.frame.parentId
-        : message.method === "Page.frameStoppedLoading" && message.params.frameId === this.targetId) this.navigationEnded = performance.now();
-      const waiter = this.pending.get(message.id);
-      if (!waiter) return;
-      this.pending.delete(message.id);
-      message.error ? waiter.reject(new Error(message.error.message)) : waiter.resolve(message.result);
-    };
+    this.socket.onmessage = event => this.handle(JSON.parse(event.data));
     const { targetInfos } = await this.send("Target.getTargets", {}, null);
     const page = newTab
       ? await this.send("Target.createTarget", { url: "about:blank" }, null)
@@ -186,7 +196,34 @@ class Chrome {
     this.targetId = page.targetId;
     this.session = (await this.send("Target.attachToTarget", { targetId: page.targetId, flatten: true }, null)).sessionId;
     await this.send("Page.enable");
+    await this.send("Network.enable");
     await this.send("Emulation.setFocusEmulationEnabled", { enabled: true }); // keep rendering if the tab is not in front
+  }
+
+  /** One message from the browser: a reply to a command, or an event. */
+  handle(message) {
+    // The main frame's id is the target id. Note when it starts navigating and when that ends.
+    if (message.method === "Page.frameRequestedNavigation" || message.method === "Page.frameStartedLoading") {
+      if (message.params.frameId === this.targetId) this.navigationStarted = performance.now();
+    } else if (message.method === "Page.frameNavigated" ? !message.params.frame.parentId
+      : message.method === "Page.frameStoppedLoading" && message.params.frameId === this.targetId) this.navigationEnded = performance.now();
+    // Track the page's content requests from send to finish, for awaitLoad. A redirect reuses the
+    // id, so the first send time stands.
+    if (message.method?.startsWith("Network.") && message.sessionId === this.session) {
+      const { requestId, type } = message.params;
+      if (message.method === "Network.requestWillBeSent") {
+        if (CONTENT_REQUESTS.has(type) && !this.requests.has(requestId)) {
+          this.requests.set(requestId, performance.now());
+          this.lastRequestActivity = performance.now();
+        }
+      } else if ((message.method === "Network.loadingFinished" || message.method === "Network.loadingFailed") && this.requests.delete(requestId)) {
+        this.lastRequestActivity = performance.now();
+      }
+    }
+    const waiter = this.pending.get(message.id);
+    if (!waiter) return;
+    this.pending.delete(message.id);
+    message.error ? waiter.reject(new Error(message.error.message)) : waiter.resolve(message.result);
   }
 
   send(method, params = {}, sessionId = this.session, timeout = 20000) {
@@ -251,8 +288,29 @@ class Chrome {
   }
 
   async goto(url) {
+    const since = performance.now();
     await this.send("Page.navigate", { url });
     await this.settle();
+    await this.awaitLoad(since);
+  }
+
+  /**
+   * Wait until the content requests sent since `since` (the action, or the navigation) have
+   * finished and the page has been quiet for a whole check interval, checking at once and then
+   * every `every` ms, for at most `limit` ms. Requests sent before `since`, such as a long poll
+   * the page keeps open, are not waited for. Returns how long it waited and how many of those
+   * requests were still out when it stopped.
+   */
+  async awaitLoad(since, { limit = LOAD_MS, every = LOAD_CHECK_MS } = {}) {
+    const started = performance.now();
+    const pending = () => [...this.requests.values()].filter(sent => sent >= since).length;
+    const quiet = () => this.lastRequestActivity < since || performance.now() - this.lastRequestActivity >= every;
+    while ((pending() || !quiet()) && performance.now() - started < limit) {
+      await sleep(Math.min(every, limit - (performance.now() - started)));
+    }
+    const load = { waited_ms: Math.round(performance.now() - started), pending: pending() };
+    if (process.env.JEV_DEBUG) console.error(`   load: ${load.pending ? `${load.pending} requests still out` : "done"} after ${load.waited_ms}ms`);
+    return load;
   }
 
   /** Read the page, then read it again a beat later: act on a page that has stopped changing. */

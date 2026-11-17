@@ -2,7 +2,7 @@
 // input sequence of a click on a Chrome whose DevTools connection is a recorder. No browser needed.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { suggestionsShown, Chrome, HOVER_MS, WAIT_MS, SCREENSHOT_MS, LANDING_MS } from "../scripts/browser.mjs";
+import { suggestionsShown, Chrome, sleep, HOVER_MS, WAIT_MS, SCREENSHOT_MS, LANDING_MS, LOAD_MS, LOAD_CHECK_MS } from "../scripts/browser.mjs";
 
 /** A Chrome whose every DevTools command is recorded with the time it was sent. */
 const recorder = () => {
@@ -136,4 +136,93 @@ test("a trace screenshot that hangs is recorded as missing and the run carries o
   assert.equal(shot.screenshot, null);
   assert.match(shot.screenshot_error, /Page\.captureScreenshot got no reply/);
   assert.equal(chrome.pending.size, 0, "no reply is left waiting");
+});
+
+/** A Chrome fed DevTools network events by hand, as its connection would deliver them. */
+const network = () => {
+  const chrome = new Chrome({ owned: true });
+  chrome.session = "page";
+  const event = (method, params, sessionId = "page") => chrome.handle({ method, params, sessionId });
+  return {
+    chrome,
+    start: (requestId, type = "Fetch", sessionId) => event("Network.requestWillBeSent", { requestId, type }, sessionId),
+    finish: requestId => event("Network.loadingFinished", { requestId }),
+    fail: requestId => event("Network.loadingFailed", { requestId }),
+  };
+};
+
+test("a page with no request out counts as loaded at the first check", async () => {
+  const { chrome } = network();
+  const load = await chrome.awaitLoad(performance.now(), { every: 50 });
+  assert.equal(load.pending, 0);
+  assert.ok(load.waited_ms < 30, `${load.waited_ms}ms`);
+});
+
+test("a request the action started holds the wait until it finishes, checked every interval", async () => {
+  const { chrome, start, finish } = network();
+  const since = performance.now();
+  start("results");
+  setTimeout(() => finish("results"), 120);
+  const load = await chrome.awaitLoad(since, { limit: 2000, every: 50 });
+  assert.equal(load.pending, 0);
+  assert.ok(load.waited_ms >= 120 && load.waited_ms < 300, `ended at the first check after the finish (${load.waited_ms}ms)`);
+});
+
+test("a failed request ends the wait like a finished one", async () => {
+  const { chrome, start, fail } = network();
+  const since = performance.now();
+  start("results", "XHR");
+  setTimeout(() => fail("results"), 60);
+  const load = await chrome.awaitLoad(since, { limit: 2000, every: 30 });
+  assert.equal(load.pending, 0);
+  assert.ok(load.waited_ms < 300, `${load.waited_ms}ms`);
+});
+
+test("a request that never ends stops the wait at its limit, and is reported as still pending", async () => {
+  const { chrome, start } = network();
+  const since = performance.now();
+  start("poll", "Document");
+  const load = await chrome.awaitLoad(since, { limit: 200, every: 50 });
+  assert.equal(load.pending, 1);
+  assert.ok(load.waited_ms >= 200 && load.waited_ms < 350, `${load.waited_ms}ms`);
+});
+
+test("only page requests the action started count: not earlier ones, images, or other tabs", async () => {
+  const { chrome, start } = network();
+  start("open-before"); // e.g. a long poll the page opened before the click
+  await sleep(5);
+  const since = performance.now();
+  start("picture", "Image");
+  start("tracker", "Ping");
+  start("elsewhere", "Fetch", "other-tab");
+  const load = await chrome.awaitLoad(since, { limit: 500, every: 50 });
+  assert.equal(load.pending, 0);
+  assert.ok(load.waited_ms < 30, `${load.waited_ms}ms`);
+});
+
+test("a script the page is still downloading holds the wait: on a cold start the page's program arrives late", async () => {
+  const { chrome, start, finish } = network();
+  const since = performance.now();
+  start("bundle", "Script");
+  setTimeout(() => finish("bundle"), 150);
+  const load = await chrome.awaitLoad(since, { limit: 2000, every: 50 });
+  assert.equal(load.pending, 0);
+  assert.ok(load.waited_ms >= 150, `waited for the script (${load.waited_ms}ms)`);
+});
+
+test("a short pause between waves of requests does not end the wait: a check must find a whole interval quiet", async () => {
+  const { chrome, start, finish } = network();
+  const since = performance.now();
+  start("bundle", "Script");
+  setTimeout(() => finish("bundle"), 40); // the page's program arrives...
+  setTimeout(() => start("results"), 70); // ...and only then asks for the results
+  setTimeout(() => finish("results"), 200);
+  const load = await chrome.awaitLoad(since, { limit: 2000, every: 50 });
+  assert.equal(load.pending, 0);
+  assert.ok(load.waited_ms >= 250 && load.waited_ms < 400, `one quiet interval after the last finish (${load.waited_ms}ms)`);
+});
+
+test("a page gets up to 10s to load, checked every half second", () => {
+  assert.equal(LOAD_MS, 10000);
+  assert.equal(LOAD_CHECK_MS, 500);
 });

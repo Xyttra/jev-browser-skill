@@ -15,6 +15,7 @@ const stubChrome = (overrides = {}) => ({
   coveredBy: async () => 'dialog "Cookie consent"', click: async () => true, select: async () => {},
   type: async () => {}, awaitSuggestions: async () => {}, enter: async () => {},
   waitForChange: async () => 1234, react: async () => {}, landed: async () => null,
+  awaitLoad: async () => ({ waited_ms: 0, pending: 0 }),
   screenshot: async () => Buffer.from("png"), ...overrides,
 });
 
@@ -107,4 +108,20 @@ test("a final screenshot that fails still yields the summary and the trace, with
   assert.equal(trace.steps.length, 1, "the trace is written");
   assert.deepEqual(trace.result, result);
   assert.match(lines.at(-1), /"screenshot_error"/, "the summary is printed");
+});
+
+test("after an action the loop waits for the page to load, from the moment it acted, and the trace records it", async () => {
+  const calls = [];
+  const chrome = stubChrome({ awaitLoad: async since => { calls.push(since); return { waited_ms: 2100, pending: 0 }; } });
+  const { trace } = await loop([click(), decision("DONE", { goal_met: 0.95 })], { chrome });
+  assert.equal(calls.length, 1, "once, after the click");
+  assert.ok(typeof calls[0] === "number" && calls[0] > 0, "from the time of the click");
+  assert.deepEqual(trace.steps[0].load, { waited_ms: 2100, pending: 0 });
+});
+
+test("a WAIT step, which acts on nothing, has no load wait of its own", async () => {
+  const calls = [];
+  const chrome = stubChrome({ awaitLoad: async since => { calls.push(since); return { waited_ms: 0, pending: 0 }; } });
+  await loop([decision("WAIT"), decision("DONE", { goal_met: 0.95 })], { chrome });
+  assert.equal(calls.length, 0);
 });

@@ -1,0 +1,16 @@
+<!doctype html>
+<title>Slow fetch</title>
+<!-- Like TMview's results: Search swaps the form for an empty shell, then fills it from a request
+     the server answers after `delay` ms. Nothing on the page changes while the request is out,
+     so the page looks settled before its results arrive. -->
+<main id="form"><input aria-label="Name" value="fairhand"><button>Search</button></main>
+<main id="results" hidden></main>
+<script>
+  document.querySelector('button').addEventListener('click', async () => {
+    document.getElementById('form').hidden = true;
+    const results = document.getElementById('results');
+    results.hidden = false;
+    const response = await fetch('/results' + location.search);
+    results.innerHTML = await response.text();
+  });
+</script>
