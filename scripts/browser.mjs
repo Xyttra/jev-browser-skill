@@ -87,7 +87,7 @@ const BINARIES = {
   linux: ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"].flatMap(n => [`/usr/bin/${n}`, `/snap/bin/${n}`]),
 }[process.platform] || [];
 
-function findBinary() {
+export function findBinary() {
   const found = [process.env.CHROME_PATH, ...BINARIES].find(path => path && existsSync(path));
   if (!found) throw new Error("No Chromium-based browser found. Install Chrome or set CHROME_PATH.");
   return found;
@@ -107,7 +107,57 @@ async function liveEndpoint(profile) {
   return open ? `ws://127.0.0.1:${port}${path}` : null;
 }
 
-export /** Minimal Chrome DevTools Protocol client over Node's built-in WebSocket. */
+/** The flags every browser of our own starts with, after how it is reached. */
+function browserFlags(profile) {
+  return [
+    `--user-data-dir=${profile}`, "--window-size=1200,860",
+    "--no-first-run", "--no-default-browser-check", "--disable-features=Translate", "--disable-sync",
+    ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []), // Chrome refuses to sandbox as root
+  ];
+}
+
+/**
+ * The browser end of --remote-debugging-pipe, shaped like the WebSocket the rest of Chrome uses:
+ * Chrome reads commands from its fd 3 and writes replies to fd 4, each message ending in a NUL.
+ */
+function pipeSocket(child) {
+  const socket = { onmessage: null };
+  const [, , , input, output] = child.stdio;
+  let buffer = "";
+  output.setEncoding("utf8"); // keeps a character split across two chunks whole
+  output.on("data", chunk => {
+    const messages = (buffer + chunk).split("\0");
+    buffer = messages.pop();
+    for (const data of messages) socket.onmessage?.({ data });
+  });
+  input.on("error", () => {}); // a command sent after Chrome quit; its reply times out or is rejected on exit
+  socket.send = text => input.write(text + "\0");
+  socket.close = () => { input.end(); output.destroy(); };
+  return socket;
+}
+
+/**
+ * Close a hidden browser that an older version of this skill left running on the profile: it
+ * listens on a port, and while it holds the profile a new browser there hands over to it and quits.
+ */
+async function closeLeftover(profile) {
+  const endpoint = await liveEndpoint(profile);
+  if (endpoint) {
+    console.error("   warning: a hidden browser left open by an earlier run was still running; closing it first");
+    await new Promise(resolve => {
+      const socket = new WebSocket(endpoint);
+      const done = () => { clearTimeout(timer); resolve(); };
+      const timer = setTimeout(done, 5000);
+      socket.onopen = () => socket.send(JSON.stringify({ id: 1, method: "Browser.close" }));
+      socket.onclose = socket.onerror = done;
+    });
+    const deadline = Date.now() + 5000;
+    while (await liveEndpoint(profile) && Date.now() < deadline) await sleep(100);
+  }
+  rmSync(join(profile, "DevToolsActivePort"), { force: true });
+}
+
+export /** Minimal Chrome DevTools Protocol client over Node's built-in WebSocket or a pipe. */
 class Chrome {
   /**
    * mode: "auto"   your own browser if it allows remote debugging, else a dedicated window
@@ -141,17 +191,15 @@ class Chrome {
     return endpoint.href;
   }
 
-  /** Start a browser on a profile of our own and wait for it to advertise its endpoint. */
+  /**
+   * Start a browser on a profile of our own. A hidden one is reached over a pipe; the Jev window
+   * over a port it advertises in its profile, so a later run can find it and reuse it.
+   */
   static async launch({ headless, profile }) {
     mkdirSync(profile, { recursive: true });
+    if (headless) return Chrome.launchHidden(profile);
     rmSync(join(profile, "DevToolsActivePort"), { force: true }); // never trust a file left by a crashed run
-    const flags = [
-      "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=1200,860",
-      "--no-first-run", "--no-default-browser-check", "--disable-features=Translate", "--disable-sync",
-      ...(headless ? ["--headless=new"] : []),
-      ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []), // Chrome refuses to sandbox as root
-      "about:blank",
-    ];
+    const flags = ["--remote-debugging-port=0", ...browserFlags(profile), "about:blank"];
     const child = spawn(findBinary(), flags, { detached: true, stdio: "ignore", windowsHide: true });
     child.unref();
     const deadline = Date.now() + 20000;
@@ -163,6 +211,34 @@ class Chrome {
     if (!endpoint) throw new Error("The browser did not start in 20 seconds.");
     const chrome = new Chrome({ owned: true, profile, headless });
     await chrome.connect(endpoint, { newTab: false });
+    return chrome;
+  }
+
+  /**
+   * A hidden browser lives exactly as long as this process. It talks to us over a pipe rather
+   * than a port: when this process ends, however it ends (finished, crashed, or stopped from
+   * outside), the pipe closes and Chrome quits. A detached browser on a port outlived any run
+   * stopped before its own clean-up, and a port lets any program on the machine take control
+   * of the browser; a pipe is reachable only from this process.
+   */
+  static async launchHidden(profile) {
+    await closeLeftover(profile);
+    const flags = ["--remote-debugging-pipe", "--headless=new", ...browserFlags(profile), "about:blank"];
+    const child = spawn(findBinary(), flags, { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"], windowsHide: true });
+    const chrome = new Chrome({ owned: true, profile, headless: true });
+    chrome.child = child;
+    child.once("exit", () => { // e.g. another browser already holds this profile and took the start-up over
+      for (const waiter of chrome.pending.values()) waiter.reject(new Error("The hidden browser quit."));
+      chrome.pending.clear();
+    });
+    try {
+      chrome.socket = pipeSocket(child);
+      chrome.socket.onmessage = event => chrome.handle(JSON.parse(event.data));
+      await chrome.setUp({ newTab: false });
+    } catch (error) {
+      child.kill();
+      throw error;
+    }
     return chrome;
   }
 
@@ -194,6 +270,11 @@ class Chrome {
       this.socket.onerror = () => { clearTimeout(hint); clearTimeout(giveUp); reject(new Error("Could not connect to the browser.")); };
     });
     this.socket.onmessage = event => this.handle(JSON.parse(event.data));
+    await this.setUp({ newTab });
+  }
+
+  /** Pick or open the tab to drive and start listening to it. */
+  async setUp({ newTab }) {
     const { targetInfos } = await this.send("Target.getTargets", {}, null);
     const page = newTab
       ? await this.send("Target.createTarget", { url: "about:blank" }, null)
@@ -472,6 +553,12 @@ class Chrome {
       else await this.send("Target.closeTarget", { targetId: this.targetId }, null);
     } catch {}
     this.socket.close();
+    const child = this.child;
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise(resolve => { // Chrome normally quits at once; a hung one must not outlive the run
+      const timer = setTimeout(() => { child.kill(); resolve(); }, 2000);
+      child.once("exit", () => { clearTimeout(timer); resolve(); });
+    });
   }
 }
 
