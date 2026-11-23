@@ -41,3 +41,45 @@ Note: this review ran on Opus at high effort because Fable was out of usage.
 ### The safety fact
 
 The hidden browser is now a non-detached child of the run, reached only over a pipe, so it ends when the run ends however the run ends. Reproduced on Windows (kill of the node process alone: 12 Chrome processes to 0). On Windows, Node (libuv) also puts non-detached children in a job object that ends them with the parent (known behaviour, not checked here), so that result does not by itself show the pipe-close path that macOS and Linux depend on; that path was said (code comment) and walked through, not run.
+
+## Round 2: fresh profile when another browser holds the hidden one (6de1260..eea08d8, branch close-hidden-browser)
+
+Reviewer: helper started as job-review-fable; it ran as claude-opus-5-5. Read in full: `git diff 6de1260..eea08d8`, `scripts/browser.mjs` lines 100-300 and 560-595, `test/hidden.test.mjs`; searched `scripts/jev.mjs` for its close and exit paths (lines 269-296). The project has no `docs/work/`, so `work.py review-pack` was not run and goal drift, decision drift, state conflict and completion claims had nothing to check against.
+
+Ran (Windows 11, real Chrome, probe scripts in the scratchpad, all processes and profile folders they made removed afterwards):
+- `npm test` at 58dc69c (same code as eea08d8): 121 tests, 121 pass, 0 skipped.
+- The new test against a copy of eea08d8 with the fallback taken out of `launchHidden`: it fails (`pass 0, fail 1`). So the test does catch the case.
+- Did not run: `jev.mjs` against Jev (no key used), anything on macOS or Linux.
+
+### Finding 1 (fault, minor): a fallback run that is stopped part-way leaves its profile folder in the temp folder for good
+
+The run's own profile is removed only in `close()` (scripts/browser.mjs, the `temporaryProfile` branch). A run stopped from outside, the case round 1 was built for, never reaches `close()`. Its browser does quit, but the `jev-hidden-*` folder stays, and nothing later removes it. While a no-port-file leftover holds the shared profile, every hidden run takes this path, so each stopped run adds one folder.
+
+Command: a hidden run holding a scratch profile; a second hidden run on the same profile in its own node process; `taskkill /F` on that second node process only; then count the Chrome processes on `jev-hidden-*` profiles and list `%TEMP%\jev-hidden-*`.
+
+Output:
+```
+held 20056
+temp before: 0
+second 21648 ~\AppData\Local\Temp\jev-hidden-S650hx
+SUCCESS: The process with PID 21536 has been terminated.
+0                                   <- Chrome processes left on jev-hidden-* profiles
+temp after kill: jev-hidden-S650hx  <- 9.7M, a full Chrome profile
+```
+
+Output the intent needs: `temp after kill:` empty, or the folder removed by the next hidden run. For example, a run could sweep `jev-hidden-*` folders that no running browser holds. No browser is left running, so this is disk that piles up, not a broken run.
+
+Verdict: declined, confirmed by reading `close()`: it is the only place the folder is removed. The case needs both a held profile (an old-version leftover with no port file, or a hidden run going on at the same time) and a run stopped from outside. A sweep must not remove a folder another hidden run is still using, and telling that apart is easy only on Windows, where the browser locks its files; on macOS and Linux a sweep could delete a running browser's profile. The folders sit in the system temp folder, which the system clears, and the leftover that causes them ends at the next restart. Passed to the user as open.
+
+### Checked and found sound (no finding)
+
+- Old-style leftover with its port file deleted (round 1's finding), on a scratch profile: the new run printed the "another browser is using ..." warning, loaded example.com (`title Example Domain`) in 674 ms on a temporary profile, and `close()` removed that profile (`own profile removed true`).
+- The start-up that the second browser hands to the first opens no extra tab there: the first run had 1 page before the second launched and 1 page after.
+- A fallback run killed from outside: its browser quits (0 Chrome processes left on `jev-hidden-*` profiles); only the folder stays (Finding 1).
+- `jev.mjs` closes the browser in a `finally` before its `process.exit` at line 288. So a run that ends normally or with an error removes its own profile.
+- The fallback fires on any exit before the first reply (`profileHeld = !ready`), not only on a held profile. Any other early quit would get the "another browser is using" warning and one retry, then the same "The hidden browser quit." error as before. This was walked through, not run: I found no way to make Chrome quit early for another reason.
+- SKILL.md no longer says that a leftover which still has its port file is closed first. `closeLeftover` still does that and still warns. This is an omission, not a false claim.
+
+### The safety fact
+
+The fallback runs only when the hidden browser quits before its first reply. It then starts a second browser on a brand-new `mkdtemp` folder, so it never closes, shares or changes the browser that holds the shared profile. Ran: the new test passes with the fallback and fails without it, and the first browser kept answering (`2 + 2` = 4, 1 page before and after). This was tested on Windows only.
