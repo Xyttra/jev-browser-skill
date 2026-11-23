@@ -156,7 +156,7 @@ node ~/.claude/skills/jev-browser/scripts/jev.mjs \
 | `--trace run.json` | Save every step: element table, request, answers, decision, screenshot. Drop it on the [site](https://jev-browser.rovira.sh) to step through it |
 | `--screenshot out.png` | Save the final page |
 | `--browser` | `auto` (default), `yours`, `own`, or `host:port` |
-| `--headless` | No window |
+| `--headless` | No window; the hidden browser quits when the run ends, however it ends |
 | `--close` | Close the tab or window at the end (it stays open by default so you can see the result) |
 | `--max-steps` | Action budget, default 100 |
 

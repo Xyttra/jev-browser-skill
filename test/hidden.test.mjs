@@ -60,19 +60,21 @@ test("a hidden browser an older version left on the profile is closed, and the r
     // The old way, as a run killed mid-way left it: hidden, detached, listening on a port, nobody connected.
     const leftover = spawn(binary, ["--remote-debugging-port=0", "--headless=new", `--user-data-dir=${profile}`,
       "--no-first-run", ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []), "about:blank"], { stdio: "ignore", windowsHide: true });
-    const deadline = Date.now() + 20000;
-    while (!existsSync(join(profile, "DevToolsActivePort")) && Date.now() < deadline) await sleep(50);
-    assert.ok(existsSync(join(profile, "DevToolsActivePort")), "fixture check: the old-style browser advertises its port");
-    const chrome = await Chrome.launch({ headless: true, profile });
     try {
-      await chrome.goto("about:blank");
-      assert.equal(await chrome.evaluate("1 + 1"), 2);
+      const deadline = Date.now() + 20000;
+      while (!existsSync(join(profile, "DevToolsActivePort")) && Date.now() < deadline) await sleep(50);
+      assert.ok(existsSync(join(profile, "DevToolsActivePort")), "fixture check: the old-style browser advertises its port");
+      const chrome = await Chrome.launch({ headless: true, profile });
+      try {
+        await chrome.goto("about:blank");
+        assert.equal(await chrome.evaluate("1 + 1"), 2);
+      } finally {
+        await chrome.close();
+      }
+      assert.ok(await gone(chrome.child.pid, 3000), "the hidden browser quits on close");
+      assert.ok(await gone(leftover.pid, 3000), "the leftover was closed");
     } finally {
-      await chrome.close();
+      leftover.kill(); // a failed run must not leave it holding the test open
     }
-    assert.ok(await gone(chrome.child.pid, 3000), "the hidden browser quits on close");
-    const closed = await gone(leftover.pid, 3000);
-    if (!closed) leftover.kill();
-    assert.ok(closed, "the leftover was closed");
   });
 });
