@@ -34,7 +34,8 @@ from https://typesafe.ai — and do not try to work around it.
   Jev decides which value goes in which field. With no `--text`, typing is not offered.
 - **`--url`**: start as close to the task as you can (the site itself, not a search engine).
 - `--screenshot out.png` saves the final page; `--headless` hides the window (the hidden browser quits when the run ends, even a run that is
-  stopped part-way, and a leftover from an older version is closed first with a warning); `--close` closes
+  stopped part-way; when another browser is using the hidden profile, the run says so and uses a
+  fresh profile of its own); `--close` closes
   the tab or window at the end (by default it stays open so the user can see the result);
   `--max-steps N` caps actions (default 100). A screenshot that fails is only noted, never
   ends the run: for `--screenshot` (20 seconds allowed) the summary gets `screenshot_error`

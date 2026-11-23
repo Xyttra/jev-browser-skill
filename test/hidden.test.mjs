@@ -78,3 +78,30 @@ test("a hidden browser an older version left on the profile is closed, and the r
     }
   });
 });
+
+test("a hidden run whose profile another browser holds runs on a fresh profile of its own", async t => {
+  await withProfile(t, async profile => {
+    let first;
+    try {
+      first = await Chrome.launch({ headless: true, profile }); // holds the profile with no port file to find it by
+    } catch (error) {
+      if (/No Chromium-based browser/.test(error.message)) return t.skip("no browser");
+      throw error;
+    }
+    try {
+      const second = await Chrome.launch({ headless: true, profile });
+      const own = second.temporaryProfile;
+      try {
+        assert.ok(own && own !== profile, "the second run got a profile of its own");
+        await second.goto("about:blank");
+        assert.equal(await second.evaluate("1 + 1"), 2);
+      } finally {
+        await second.close();
+      }
+      assert.ok(!existsSync(own), "the run's own profile is removed when it closes");
+      assert.equal(await first.evaluate("2 + 2"), 4, "the first run was left alone");
+    } finally {
+      await first.close();
+    }
+  });
+});

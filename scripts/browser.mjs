@@ -3,9 +3,9 @@
 // code-owned node ids with real mouse and keyboard events.
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { SNAPSHOT, LOCATE, REAIM, COVER, ARM_LANDING, READ_LANDING, fingerprint } from "./core.mjs";
 
@@ -223,18 +223,45 @@ class Chrome {
    */
   static async launchHidden(profile) {
     await closeLeftover(profile);
+    try {
+      return await Chrome.startHidden(profile);
+    } catch (error) {
+      if (!error.profileHeld) throw error;
+      // Another browser holds the profile: a hidden run going on at the same time, or a leftover an
+      // older version left with no port file to find it by. Neither is ours to close, so this run
+      // gets a profile of its own, removed when it closes.
+      console.error(`   warning: another browser is using ${profile} (another hidden run, or one left open by an older version); using a fresh profile for this run`);
+      const own = mkdtempSync(join(tmpdir(), "jev-hidden-"));
+      try {
+        const chrome = await Chrome.startHidden(own);
+        chrome.temporaryProfile = own;
+        return chrome;
+      } catch (error) {
+        rmSync(own, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        throw error;
+      }
+    }
+  }
+
+  static async startHidden(profile) {
     const flags = ["--remote-debugging-pipe", "--headless=new", ...browserFlags(profile), "about:blank"];
     const child = spawn(findBinary(), flags, { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"], windowsHide: true });
     const chrome = new Chrome({ owned: true, profile, headless: true });
     chrome.child = child;
-    child.once("exit", () => { // e.g. another browser already holds this profile and took the start-up over
-      for (const waiter of chrome.pending.values()) waiter.reject(new Error("The hidden browser quit."));
+    let ready = false;
+    child.once("exit", () => {
+      // Quitting before it answered is what a browser does when another one already holds its
+      // profile: it hands its start-up over to that one and ends.
+      const error = new Error("The hidden browser quit.");
+      error.profileHeld = !ready;
+      for (const waiter of chrome.pending.values()) waiter.reject(error);
       chrome.pending.clear();
     });
     try {
       chrome.socket = pipeSocket(child);
       chrome.socket.onmessage = event => chrome.handle(JSON.parse(event.data));
       await chrome.setUp({ newTab: false });
+      ready = true;
     } catch (error) {
       child.kill();
       throw error;
@@ -554,11 +581,14 @@ class Chrome {
     } catch {}
     this.socket.close();
     const child = this.child;
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
-    await new Promise(resolve => { // Chrome normally quits at once; a hung one must not outlive the run
+    if (child && child.exitCode === null && child.signalCode === null) await new Promise(resolve => { // Chrome normally quits at once; a hung one must not outlive the run
       const timer = setTimeout(() => { child.kill(); resolve(); }, 2000);
       child.once("exit", () => { clearTimeout(timer); resolve(); });
     });
+    if (this.temporaryProfile) {
+      try { rmSync(this.temporaryProfile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+      catch (error) { console.error(`   warning: could not remove the run's own profile ${this.temporaryProfile} (${error.message})`); }
+    }
   }
 }
 
